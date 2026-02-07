@@ -154,22 +154,33 @@ def sync(conf):
 
         handle_github_issue(conf, result.stderr + result.stdout)
         
-        print("CONFLICT DETECTED. This is your code vs incoming code.")
+        print("MERGE CONFLICT DETECTED.")
         choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
         
         if choice == 'y':
-            # Surgical reset: find conflicted files and checkout remote versions
-            conflicted_files = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.splitlines()
+            # 1. Identify files that git is refusing to merge
+            # This handles files that are modified locally and conflict with the incoming pull
+            conflicted_files = subprocess.run("git diff --name-only origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True).stdout.splitlines()
             
-            for f in conflicted_files:
-                print(f"Restoring {f} from remote...")
-                subprocess.run(f"git checkout origin/{conf['BRANCH']} -- {f}", shell=True)
+            # Also catch files git explicitly marks as 'Unmerged'
+            unmerged_files = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.splitlines()
             
-            subprocess.run("git merge --abort", shell=True)
+            all_to_fix = list(set(conflicted_files + unmerged_files))
+
+            for f in all_to_fix:
+                print(f"Force-syncing {f} from remote...")
+                # Reset the index for the file first (removes it from the 'conflict' state)
+                subprocess.run(f"git reset HEAD -- {f}", shell=True, capture_output=True)
+                # Overwrite with the remote version
+                subprocess.run(f"git checkout origin/{conf['BRANCH']} -- {f}", shell=True, capture_output=True)
+            
+            # Try to abort a merge if one exists, but ignore errors if it doesn't
+            subprocess.run("git merge --abort", shell=True, capture_output=True)
+            
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-            print("Surgical sync complete.")
+            print("Surgical sync complete. File is now updated.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
     else:
@@ -202,6 +213,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
