@@ -114,7 +114,9 @@ def touch_files():
                     pass
 
 def sync(conf):
-    print(f"🔄 Syncing {conf['BRANCH']}...")
+    global active_conflict_issue_id
+    
+    print(f"Syncing {conf['BRANCH']}...")
     
     # Try the pull
     result = subprocess.run(f"git pull origin {conf['BRANCH']}", shell=True, capture_output=True, text=True)
@@ -149,6 +151,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
