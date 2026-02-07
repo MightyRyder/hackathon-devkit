@@ -160,7 +160,7 @@ def sync(conf):
         if choice == 'y':
             # 1. Identify files that git is refusing to merge
             # This handles files that are modified locally and conflict with the incoming pull
-            conflicted_files = subprocess.run("git diff --name-only origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True).stdout.splitlines()
+            conflicted_files = subprocess.run(f"git diff --name-only origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True).stdout.splitlines()
             
             # Also catch files git explicitly marks as 'Unmerged'
             unmerged_files = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.splitlines()
@@ -213,6 +213,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
