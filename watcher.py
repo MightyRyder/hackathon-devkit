@@ -158,6 +158,11 @@ def sync(conf):
         choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
         
         if choice == 'y':
+            print("Backing up to lat_conflict_backup.patch... Use 'git apply last_conflict_backup.patch' to use the backup.")
+            subprocess.run(
+                "git diff > last_conflict_backup.patch",
+                shell=True
+            )
             print("Pre-sync snapshot:")
             subprocess.run("git status --porcelain", shell=True)
             # 1. Identify files that git is refusing to merge
@@ -215,6 +220,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
