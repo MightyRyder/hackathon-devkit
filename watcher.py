@@ -62,48 +62,70 @@ def relaunch_node(conf):
 
 import json
 
-def create_github_issue(conf, error_msg):
-    """Creates a GitHub issue when a merge conflict occurs."""
-    print("📢 Reporting conflict to GitHub Issues...")
+def handle_github_issue(conf, error_msg, resolve=False):
+    global active_conflict_issue_id
     
-    url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues"
     headers = {
         "Authorization": f"token {conf['GITHUB_TOKEN']}",
         "Accept": "application/vnd.github.v3+json"
     }
-    data = {
-        "title": f"⚠️ Merge Conflict on Node: {os.uname()[1] if os.name != 'nt' else 'Main-PC'}",
-        "body": f"The Watcher encountered a conflict while syncing **{conf['BRANCH']}**.\n\n**Error Output:**\n```\n{error_msg}\n```\n\n*This issue was generated automatically by the Hive Watcher.*",
-        "labels": ["bug", "sync-conflict"]
-    }
     
-    try:
-        response = requests.post(url, headers=headers, data=json.dumps(data))
-        if response.status_code == 201:
-            print("✅ Issue created successfully.")
-        else:
-            print(f"❌ Failed to create issue: {response.status_code}")
-    except Exception as e:
-        print(f"❌ API Error: {e}")
+    # RESOLVE: Close the issue if the sync finally works
+    if resolve and active_conflict_issue_id:
+        url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues/{active_conflict_issue_id}"
+        requests.patch(url, headers=headers, data=json.dumps({"state": "closed"}))
+        print(f"✅ Conflict resolved. Closed Issue #{active_conflict_issue_id}")
+        active_conflict_issue_id = None
+        return
+
+    # CREATE: Only if we haven't already reported this specific conflict
+    if not resolve and active_conflict_issue_id is None:
+        url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues"
+        node_name = os.uname()[1] if os.name != 'nt' else "Main-PC"
+        
+        data = {
+            "title": f"⚠️ Sync Conflict: {node_name}",
+            "body": f"Merge failed on branch **{conf['BRANCH']}**.\n\n**Error:**\n```\n{error_msg}\n```",
+            "labels": ["bug", "hive-conflict"]
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data))
+            if response.status_code == 201:
+                active_conflict_issue_id = response.json().get('number')
+                print(f"📢 Issue created: #{active_conflict_issue_id}")
+            else:
+                print(f"❌ API Error {response.status_code}: {response.text}")
+        except Exception as e:
+            print(f"❌ Failed to connect to GitHub API: {e}")
+
+def touch_files():
+    """Update timestamps of all python files to force VS Code to refresh."""
+    for root, dirs, files in os.walk("."):
+        for f in files:
+            if f.endswith((".py", ".txt", ".sh")):
+                file_path = os.path.join(root, f)
+                try:
+                    # 'Touching' the file updates the Last Modified timestamp
+                    os.utime(file_path, None)
+                except Exception:
+                    pass
 
 def sync(conf):
-    if conf.get('IS_NODE') == "True":
-        # Nodes stay ruthless
-        run("git fetch origin")
-        run(f"git reset --hard origin/{conf['BRANCH']}")
-        relaunch_node(conf)
+    print(f"🔄 Syncing {conf['BRANCH']}...")
+    
+    # Try the pull
+    result = subprocess.run(f"git pull origin {conf['BRANCH']}", shell=True, capture_output=True, text=True)
+    
+    if result.returncode != 0:
+        # PULL FAILED: Report it (if not already reported)
+        handle_github_issue(conf, result.stderr + result.stdout)
+        return False # Signal that sync failed
     else:
-        # PC handles merge with Issue reporting
-        print("Attempting Merge...")
-        result = subprocess.run(f"git pull origin {conf['BRANCH']}", shell=True, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            print("CONFLICT DETECTED!")
-            # Trigger the GitHub Issue
-            create_github_issue(conf, result.stderr + result.stdout)
-        else:
-            if "Already up to date" not in result.stdout:
-                relaunch_node(conf)
+        touch_files()
+        handle_github_issue(conf, "", resolve=True)
+        relaunch_node(conf)
+        return True
 
 def main():
     conf = get_config()
@@ -126,5 +148,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
