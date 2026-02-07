@@ -79,7 +79,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
                 f"```diff\n{diff_data}\n```\n"
                 f"**Raw Error:**\n```\n{error_msg}\n```"
             ),
-            "labels": ["bug", "hive-conflict"]
+            "labels": ["bug", "sync-issue"]
         }
         
         try:
@@ -213,6 +213,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
