@@ -82,8 +82,7 @@ def sync(conf):
     
     print("System Ready.")
     
-    # Check if the watcher itself was updated; if so, restart it
-    restart_all_apps(conf)
+    relaunch_node(conf)
 
 def main():
     conf = get_config()
@@ -106,6 +105,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
