@@ -52,9 +52,23 @@ def ensure_git_installed():
 
 def generate_config():
     clear()
+    # Get the URL and clean it up
+    raw_url = input("Private Repo URL (e.g., github.com/user/repo): ").strip()
+    # Remove protocol if user included it
+    clean_url = raw_url.replace("https://", "").replace("http://", "").replace(".git", "")
     
-    repo_url = input("Private Repo URL (e.g., github.com/user/repo): ").replace("https://", "")
-    token = input("GitHub Personal Access Token: ")
+    # Extract Owner and Repo Name for the GitHub API Issue logic
+    # Logic: github.com/owner/repo -> ['github.com', 'owner', 'repo']
+    url_parts = clean_url.split('/')
+    if len(url_parts) >= 3:
+        repo_owner = url_parts[1]
+        repo_name = url_parts[2]
+    else:
+        # Fallback if they just typed 'user/repo'
+        repo_owner = url_parts[0]
+        repo_name = url_parts[1]
+
+    token = input("GitHub Personal Access Token: ").strip()
     
     print("\nRole Selection:")
     print("[1] Raspberry Pi Node (Production - Tracks 'stable')")
@@ -64,14 +78,18 @@ def generate_config():
     branch = "stable" if role_choice == "1" else "dev"
     is_node = "True" if role_choice == "1" else "False"
     
-    # Save config
+    # Save config with the new required keys
     with open("config.txt", "w") as f:
-        f.write(f"REPO_URL=https://{token}@{repo_url}\n")
+        f.write(f"GITHUB_TOKEN={token}\n") # Required for API calls
+        f.write(f"REPO_URL=https://{token}@github.com/{repo_owner}/{repo_name}\n")
+        f.write(f"REPO_OWNER={repo_owner}\n") # FIXED: Added this
+        f.write(f"REPO_NAME={repo_name}\n")   # FIXED: Added this
         f.write(f"BRANCH={branch}\n")
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
 
-    print(f"\nconfig.txt generated for '{branch}' branch.")
+    print(f"\n✅ config.txt generated for {repo_owner}/{repo_name}")
+    print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
 
 if __name__ == "__main__":
     ensure_git_installed()
