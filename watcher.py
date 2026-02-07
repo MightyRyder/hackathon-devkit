@@ -3,6 +3,8 @@ import sys
 import time
 import subprocess
 
+active_conflict_issue_id = None
+
 def get_config():
     conf = {}
     if not os.path.exists("config.txt"):
@@ -146,8 +148,8 @@ def main():
         time.sleep(5)
 
 if __name__ == "__main__":
-
     main()
+
 
 
 
