@@ -58,7 +58,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
     if not resolve and active_conflict_issue_id is None:
         print("Reporting conflict to GitHub Issues...")
         
-        # Grab the actual code differences (Yours vs Pushed)
+        # Grab the actual code differences
         try:
             diff_data = subprocess.check_output(
                 f"git diff HEAD..origin/{conf['BRANCH']}", 
@@ -75,7 +75,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
             "body": (
                 f"### Conflict on {node_name}\n"
                 f"Merge failed on branch `{conf['BRANCH']}`.\n\n"
-                f"#### Code Comparison (Yours vs Pushed):\n"
+                f"#### Code Comparison:\n"
                 f"```diff\n{diff_data}\n```\n"
                 f"**Raw Error:**\n```\n{error_msg}\n```"
             ),
@@ -202,4 +202,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
