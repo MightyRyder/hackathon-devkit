@@ -158,6 +158,8 @@ def sync(conf):
         choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
         
         if choice == 'y':
+            print("Pre-sync snapshot:")
+            subprocess.run("git status --porcelain", shell=True)
             # 1. Identify files that git is refusing to merge
             # This handles files that are modified locally and conflict with the incoming pull
             conflicted_files = subprocess.run(f"git diff --name-only origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True).stdout.splitlines()
@@ -213,6 +215,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
