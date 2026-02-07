@@ -48,7 +48,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
         url = f"https://api.github.com/repos/{conf.get('REPO_OWNER')}/{conf.get('REPO_NAME')}/issues/{active_conflict_issue_id}"
         try:
             requests.patch(url, headers=headers, json={"state": "closed"})
-            print(f"✅ Conflict resolved. Closed Issue #{active_conflict_issue_id}")
+            print(f"Conflict resolved. Closed Issue #{active_conflict_issue_id}")
             active_conflict_issue_id = None
         except:
             pass
@@ -56,7 +56,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
 
     # CREATE: Only if we haven't already reported this specific conflict
     if not resolve and active_conflict_issue_id is None:
-        print("📢 Reporting conflict to GitHub Issues...")
+        print("Reporting conflict to GitHub Issues...")
         
         # Grab the actual code differences (Yours vs Pushed)
         try:
@@ -71,11 +71,11 @@ def handle_github_issue(conf, error_msg, resolve=False):
         node_name = platform.node()
         
         data = {
-            "title": f"⚠️ Sync Conflict: {node_name}",
+            "title": f"Sync Conflict: {node_name}",
             "body": (
-                f"### 🛑 Conflict on {node_name}\n"
+                f"### Conflict on {node_name}\n"
                 f"Merge failed on branch `{conf['BRANCH']}`.\n\n"
-                f"#### 🔍 Code Comparison (Yours vs Pushed):\n"
+                f"#### Code Comparison (Yours vs Pushed):\n"
                 f"```diff\n{diff_data}\n```\n"
                 f"**Raw Error:**\n```\n{error_msg}\n```"
             ),
@@ -86,16 +86,16 @@ def handle_github_issue(conf, error_msg, resolve=False):
             response = requests.post(url, headers=headers, json=data)
             if response.status_code == 201:
                 active_conflict_issue_id = response.json().get('number')
-                print(f"🚀 Issue created: #{active_conflict_issue_id}")
+                print(f"Issue created: #{active_conflict_issue_id}")
             else:
-                print(f"❌ GitHub API Error {response.status_code}: {response.text}")
+                print(f"GitHub API Error {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"❌ Failed to connect to GitHub API: {e}")
+            print(f"Failed to connect to GitHub API: {e}")
 
 def relaunch_node(conf):
     if conf.get('IS_NODE') == "True":
         my_pid = os.getpid()
-        print("🛑 Cleaning up existing processes...")
+        print("Cleaning up existing processes...")
         
         # Cleanup logic (Platform specific)
         if platform.system() != "Windows":
@@ -116,10 +116,9 @@ def relaunch_node(conf):
                         header = f.read(150)
                     
                     if "# cluster-start" in header.lower():
-                        print(f"🚀 Launching Service: {filename}")
+                        print(f"Launching Service: {filename}")
                         log_file = f"logs/{filename}.log"
                         with open(log_file, "a") as log_out:
-                            # Use setsid on Linux/Mac to decouple process
                             kwargs = {}
                             if platform.system() != "Windows":
                                 kwargs.update(preexec_fn=os.setsid)
@@ -131,7 +130,7 @@ def relaunch_node(conf):
                                 **kwargs
                             )
                 except Exception as e:
-                    print(f"⚠️ Could not start {filename}: {e}")
+                    print(f"Could not start {filename}: {e}")
 
 def sync(conf):
     ts = time.strftime("%H:%M:%S")
@@ -148,9 +147,9 @@ def sync(conf):
         handle_github_issue(conf, result.stderr + result.stdout)
         
         print("\n" + "!"*40)
-        print("⚠️ CONFLICT DETECTED. Check GitHub Issues for the diff.")
-        print("The meaning of life is 42, but this merge is a mess.")
-        choice = input("Overwrite your local changes and force sync? (y/n): ").lower().strip()
+        print("CONFLICT DETECTED. Check GitHub Issues for the diff.")
+        print("This merge is a mess.")
+        choice = input("Allow the following lines to be overwritten? (y/n): ").lower().strip()
         print("!"*40 + "\n")
         
         if choice == 'y':
@@ -172,7 +171,7 @@ def sync(conf):
 
 def main():
     conf = get_config()
-    print(f"📡 Watcher Online | Branch: {conf['BRANCH']}")
+    print(f"Watcher Online | Branch: {conf['BRANCH']}")
     
     while True:
         try:
@@ -185,10 +184,10 @@ def main():
                 if local_sha != remote_sha:
                     sync(conf)
             else:
-                print(f"⚠️ Git Remote Check Failed: {remote_check_res.stderr}")
+                print(f"Git Remote Check Failed: {remote_check_res.stderr}")
                 
         except Exception as e:
-            print(f"⚠️ Connection glitch: {e}")
+            print(f"Connection glitch: {e}")
             
         time.sleep(5)
 
