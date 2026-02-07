@@ -1,4 +1,4 @@
-import os
+/import os
 import sys
 import time
 import subprocess
@@ -23,7 +23,7 @@ def relaunch_node(conf):
         my_pid = os.getpid()
         
         # 1. SURGICAL KILL (As before)
-        print("🛑 Cleaning up folder-associated processes...")
+        print("Cleaning up folder-associated processes...")
         try:
             pids = subprocess.check_output(["fuser", "."]).decode().split()
             for pid in pids:
@@ -74,7 +74,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
     if resolve and active_conflict_issue_id:
         url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues/{active_conflict_issue_id}"
         requests.patch(url, headers=headers, data=json.dumps({"state": "closed"}))
-        print(f"✅ Conflict resolved. Closed Issue #{active_conflict_issue_id}")
+        print(f"Conflict resolved. Closed Issue #{active_conflict_issue_id}")
         active_conflict_issue_id = None
         return
 
@@ -84,7 +84,7 @@ def handle_github_issue(conf, error_msg, resolve=False):
         node_name = os.uname()[1] if os.name != 'nt' else "Main-PC"
         
         data = {
-            "title": f"⚠️ Sync Conflict: {node_name}",
+            "title": f"Sync Conflict: {node_name}",
             "body": f"Merge failed on branch **{conf['BRANCH']}**.\n\n**Error:**\n```\n{error_msg}\n```",
             "labels": ["bug", "hive-conflict"]
         }
@@ -93,11 +93,11 @@ def handle_github_issue(conf, error_msg, resolve=False):
             response = requests.post(url, headers=headers, data=json.dumps(data))
             if response.status_code == 201:
                 active_conflict_issue_id = response.json().get('number')
-                print(f"📢 Issue created: #{active_conflict_issue_id}")
+                print(f"Issue created: #{active_conflict_issue_id}")
             else:
-                print(f"❌ API Error {response.status_code}: {response.text}")
+                print(f"API Error {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"❌ Failed to connect to GitHub API: {e}")
+            print(f"Failed to connect to GitHub API: {e}")
 
 def touch_files():
     """Update timestamps of all python files to force VS Code to refresh."""
@@ -148,6 +148,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
