@@ -91,7 +91,26 @@ def generate_config():
     print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
 
+def bootstrap_watcher():
+    print("\nSetup complete. Bootstrapping Watcher...")
+    
+    watcher_script = "watcher.py"
+    
+    if os.path.exists(watcher_script):
+        # Use Popen to start the watcher in a separate process
+        # so setup.py can finish and close cleanly.
+        if os.name == 'nt':
+            # Windows: Opens a new terminal window for the watcher
+            subprocess.Popen(["start", "cmd", "/k", sys.executable, watcher_script], shell=True)
+        else:
+            # Linux/Mac: Runs in background
+            subprocess.Popen([sys.executable, watcher_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        print(f"Watcher is now running in the background.")
+    else:
+        print(f"Error: {watcher_script} not found. Launch manually.")
+
 if __name__ == "__main__":
     ensure_git_installed()
     generate_config()
-
+    bootstrap_watcher()
