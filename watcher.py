@@ -136,38 +136,47 @@ def sync(conf):
     ts = time.strftime("%H:%M:%S")
     print(f"[{ts}] Syncing {conf['BRANCH']}...")
     
-    # 1. Fetch latest
     subprocess.run("git fetch origin", shell=True, capture_output=True)
     
-    # 2. Try a merge
+    # Attempt merge
     result = subprocess.run(f"git merge origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True)
     
     if result.returncode != 0:
-        # CONFLICT DETECTED
+        # 1. Grab the conflict lines specifically
+        # This shows the diff of the unmerged (conflicted) files
+        print("\n--- CONFLICT DETAILS ---")
+        conflicts = subprocess.run("git diff --color=always", shell=True, capture_output=True, text=True).stdout
+        if conflicts:
+            print(conflicts)
+        else:
+            print("Conflict markers detected in file contents.")
+        print("------------------------\n")
+
         handle_github_issue(conf, result.stderr + result.stdout)
         
-        print("\n" + "!"*40)
-        print("CONFLICT DETECTED. Check GitHub Issues for the diff.")
-        print("This merge is a mess.")
-        choice = input("Allow the following lines to be overwritten? (y/n): ").lower().strip()
-        print("!"*40 + "\n")
+        print("CONFLICT DETECTED. Check the red/green lines above.")
+        choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
         
         if choice == 'y':
-            subprocess.run(f"git reset --hard origin/{conf['BRANCH']}", shell=True)
+            # Surgical reset: find conflicted files and checkout remote versions
+            conflicted_files = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.splitlines()
+            
+            for f in conflicted_files:
+                print(f"Restoring {f} from remote...")
+                subprocess.run(f"git checkout origin/{conf['BRANCH']} -- {f}", shell=True)
+            
+            subprocess.run("git merge --abort", shell=True)
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
+            print("Surgical sync complete.")
         else:
-            print(f"[{ts}] Sync aborted. Keeping local changes.")
+            print(f"[{ts}] Sync aborted. Local changes preserved.")
     else:
-        # SUCCESS
         if "Already up to date" not in result.stdout:
-            print(f"[{ts}] Update applied successfully.")
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-        else:
-            print(f"[{ts}] System Ready (No changes).", end="\r")
 
 def main():
     conf = get_config()
@@ -193,3 +202,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
