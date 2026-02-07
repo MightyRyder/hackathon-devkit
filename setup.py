@@ -88,9 +88,10 @@ def generate_config():
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
 
-    print(f"\n✅ config.txt generated for {repo_owner}/{repo_name}")
+    print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
 
 if __name__ == "__main__":
     ensure_git_installed()
     generate_config()
+
