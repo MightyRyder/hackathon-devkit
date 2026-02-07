@@ -2,159 +2,195 @@ import os
 import sys
 import time
 import subprocess
+import json
+import requests
+import signal
+import platform
 
+# Global tracker for GitHub issues to prevent spam
 active_conflict_issue_id = None
 
 def get_config():
     conf = {}
     if not os.path.exists("config.txt"):
-        print("Error: config.txt not found!")
+        print("Error: config.txt not found! Run setup.py first.")
         sys.exit(1)
     with open("config.txt", "r") as f:
         for line in f:
-            if "=" in line:
+            if "=" in line and not line.startswith("#"):
                 k, v = line.strip().split("=", 1)
-                conf[k] = v
+                conf[k.strip()] = v.strip()
     return conf
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-def relaunch_node(conf):
-    if conf.get('IS_NODE') == "True":
-        my_pid = os.getpid()
-        
-        # 1. SURGICAL KILL (As before)
-        print("Cleaning up folder-associated processes...")
-        try:
-            pids = subprocess.check_output(["fuser", "."]).decode().split()
-            for pid in pids:
-                if int(pid) != my_pid:
-                    os.kill(int(pid), signal.SIGKILL)
-        except:
-            pass
-    
-        # 2. DYNAMIC RELAUNCH PHASE
-        os.makedirs("logs", exist_ok=True)
-        
-        # Scan every file in the root
-        for filename in os.listdir("."):
-            if filename.endswith(".py") and filename != "watcher.py":
-                
-                # Check if the file SHOULD be started
-                # We look for '# cluster-start' in the first 2 lines of the file
+def touch_files():
+    """Forces VS Code to refresh by updating file modification timestamps."""
+    for root, dirs, files in os.walk("."):
+        for f in files:
+            if f.endswith((".py", ".txt", ".sh", ".js")):
                 try:
-                    with open(filename, 'r') as f:
-                        header = f.read(100) # Just read the beginning
-                    
-                    if "# cluster-start" in header.lower():
-                        print(f"Starting cluster Service: {filename}")
-                        
-                        log_file = f"logs/{filename}.log"
-                        with open(log_file, "a") as log_out:
-                            # Use Popen so they all run simultaneously in the background
-                            subprocess.Popen(
-                                [sys.executable, filename],
-                                stdout=log_out,
-                                stderr=log_out,
-                                preexec_fn=os.setpid # Ensures it stays in its own process group
-                            )
-                except Exception as e:
-                    print(f"Could not scan {filename}: {e}")
-
-import json
+                    os.utime(os.path.join(root, f), None)
+                except:
+                    pass
 
 def handle_github_issue(conf, error_msg, resolve=False):
     global active_conflict_issue_id
     
     headers = {
-        "Authorization": f"token {conf['GITHUB_TOKEN']}",
+        "Authorization": f"token {conf.get('GITHUB_TOKEN')}",
         "Accept": "application/vnd.github.v3+json"
     }
     
     # RESOLVE: Close the issue if the sync finally works
     if resolve and active_conflict_issue_id:
-        url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues/{active_conflict_issue_id}"
-        requests.patch(url, headers=headers, data=json.dumps({"state": "closed"}))
-        print(f"Conflict resolved. Closed Issue #{active_conflict_issue_id}")
-        active_conflict_issue_id = None
+        url = f"https://api.github.com/repos/{conf.get('REPO_OWNER')}/{conf.get('REPO_NAME')}/issues/{active_conflict_issue_id}"
+        try:
+            requests.patch(url, headers=headers, json={"state": "closed"})
+            print(f"✅ Conflict resolved. Closed Issue #{active_conflict_issue_id}")
+            active_conflict_issue_id = None
+        except:
+            pass
         return
 
     # CREATE: Only if we haven't already reported this specific conflict
     if not resolve and active_conflict_issue_id is None:
-        url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues"
-        node_name = os.uname()[1] if os.name != 'nt' else "Main-PC"
+        print("📢 Reporting conflict to GitHub Issues...")
+        
+        # Grab the actual code differences (Yours vs Pushed)
+        try:
+            diff_data = subprocess.check_output(
+                f"git diff HEAD..origin/{conf['BRANCH']}", 
+                shell=True, text=True
+            )[:2000]
+        except:
+            diff_data = "Could not generate diff summary."
+
+        url = f"https://api.github.com/repos/{conf.get('REPO_OWNER')}/{conf.get('REPO_NAME')}/issues"
+        node_name = platform.node()
         
         data = {
-            "title": f"Sync Conflict: {node_name}",
-            "body": f"Merge failed on branch **{conf['BRANCH']}**.\n\n**Error:**\n```\n{error_msg}\n```",
+            "title": f"⚠️ Sync Conflict: {node_name}",
+            "body": (
+                f"### 🛑 Conflict on {node_name}\n"
+                f"Merge failed on branch `{conf['BRANCH']}`.\n\n"
+                f"#### 🔍 Code Comparison (Yours vs Pushed):\n"
+                f"```diff\n{diff_data}\n```\n"
+                f"**Raw Error:**\n```\n{error_msg}\n```"
+            ),
             "labels": ["bug", "hive-conflict"]
         }
         
         try:
-            response = requests.post(url, headers=headers, data=json.dumps(data))
+            response = requests.post(url, headers=headers, json=data)
             if response.status_code == 201:
                 active_conflict_issue_id = response.json().get('number')
-                print(f"Issue created: #{active_conflict_issue_id}")
+                print(f"🚀 Issue created: #{active_conflict_issue_id}")
             else:
-                print(f"API Error {response.status_code}: {response.text}")
+                print(f"❌ GitHub API Error {response.status_code}: {response.text}")
         except Exception as e:
-            print(f"Failed to connect to GitHub API: {e}")
+            print(f"❌ Failed to connect to GitHub API: {e}")
 
-def touch_files():
-    """Update timestamps of all python files to force VS Code to refresh."""
-    for root, dirs, files in os.walk("."):
-        for f in files:
-            if f.endswith((".py", ".txt", ".sh")):
-                file_path = os.path.join(root, f)
+def relaunch_node(conf):
+    if conf.get('IS_NODE') == "True":
+        my_pid = os.getpid()
+        print("🛑 Cleaning up existing processes...")
+        
+        # Cleanup logic (Platform specific)
+        if platform.system() != "Windows":
+            try:
+                pids = subprocess.check_output(["fuser", "."]).decode().split()
+                for pid in pids:
+                    if int(pid) != my_pid:
+                        os.kill(int(pid), signal.SIGKILL)
+            except:
+                pass
+        
+        os.makedirs("logs", exist_ok=True)
+        
+        for filename in os.listdir("."):
+            if filename.endswith(".py") and filename != "watcher.py":
                 try:
-                    # 'Touching' the file updates the Last Modified timestamp
-                    os.utime(file_path, None)
-                except Exception:
-                    pass
+                    with open(filename, 'r', encoding='utf-8') as f:
+                        header = f.read(150)
+                    
+                    if "# cluster-start" in header.lower():
+                        print(f"🚀 Launching Service: {filename}")
+                        log_file = f"logs/{filename}.log"
+                        with open(log_file, "a") as log_out:
+                            # Use setsid on Linux/Mac to decouple process
+                            kwargs = {}
+                            if platform.system() != "Windows":
+                                kwargs.update(preexec_fn=os.setsid)
+                                
+                            subprocess.Popen(
+                                [sys.executable, filename],
+                                stdout=log_out,
+                                stderr=log_out,
+                                **kwargs
+                            )
+                except Exception as e:
+                    print(f"⚠️ Could not start {filename}: {e}")
 
 def sync(conf):
-    global active_conflict_issue_id
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] Syncing {conf['BRANCH']}...")
     
-    print(f"Syncing {conf['BRANCH']}...")
+    # 1. Fetch latest
+    subprocess.run("git fetch origin", shell=True, capture_output=True)
     
-    # Try the pull
-    result = subprocess.run(f"git pull origin {conf['BRANCH']}", shell=True, capture_output=True, text=True)
+    # 2. Try a merge
+    result = subprocess.run(f"git merge origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True)
     
     if result.returncode != 0:
-        # PULL FAILED: Report it (if not already reported)
+        # CONFLICT DETECTED
         handle_github_issue(conf, result.stderr + result.stdout)
-        return False # Signal that sync failed
+        
+        print("\n" + "!"*40)
+        print("⚠️ CONFLICT DETECTED. Check GitHub Issues for the diff.")
+        print("The meaning of life is 42, but this merge is a mess.")
+        choice = input("Overwrite your local changes and force sync? (y/n): ").lower().strip()
+        print("!"*40 + "\n")
+        
+        if choice == 'y':
+            subprocess.run(f"git reset --hard origin/{conf['BRANCH']}", shell=True)
+            handle_github_issue(conf, "", resolve=True)
+            touch_files()
+            relaunch_node(conf)
+        else:
+            print(f"[{ts}] Sync aborted. Keeping local changes.")
     else:
-        touch_files()
-        handle_github_issue(conf, "", resolve=True)
-        relaunch_node(conf)
-        return True
+        # SUCCESS
+        if "Already up to date" not in result.stdout:
+            print(f"[{ts}] Update applied successfully.")
+            handle_github_issue(conf, "", resolve=True)
+            touch_files()
+            relaunch_node(conf)
+        else:
+            print(f"[{ts}] System Ready (No changes).", end="\r")
 
 def main():
     conf = get_config()
-    print(f"Watcher Online | Branch: {conf['BRANCH']}")
+    print(f"📡 Watcher Online | Branch: {conf['BRANCH']}")
     
     while True:
         try:
-            # This just checks the 'ID' without downloading anything heavy
-            remote_check = run(f"git ls-remote origin {conf['BRANCH']}").stdout.split()[0]
-            local_sha = run("git rev-parse HEAD").stdout.strip()
+            # Quick remote check
+            remote_check_res = run(f"git ls-remote origin {conf['BRANCH']}")
+            if remote_check_res.returncode == 0:
+                remote_sha = remote_check_res.stdout.split()[0]
+                local_sha = run("git rev-parse HEAD").stdout.strip()
 
-            if local_sha != remote_check:
-                sync(conf)
+                if local_sha != remote_sha:
+                    sync(conf)
+            else:
+                print(f"⚠️ Git Remote Check Failed: {remote_check_res.stderr}")
                 
         except Exception as e:
-            print(f"Connection glitch: {e}")
+            print(f"⚠️ Connection glitch: {e}")
             
         time.sleep(5)
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
