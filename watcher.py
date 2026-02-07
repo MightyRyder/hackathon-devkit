@@ -60,24 +60,50 @@ def relaunch_node(conf):
                 except Exception as e:
                     print(f"Could not scan {filename}: {e}")
 
+import json
+
+def create_github_issue(conf, error_msg):
+    """Creates a GitHub issue when a merge conflict occurs."""
+    print("📢 Reporting conflict to GitHub Issues...")
+    
+    url = f"https://api.github.com/repos/{conf['REPO_OWNER']}/{conf['REPO_NAME']}/issues"
+    headers = {
+        "Authorization": f"token {conf['GITHUB_TOKEN']}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "title": f"⚠️ Merge Conflict on Node: {os.uname()[1] if os.name != 'nt' else 'Main-PC'}",
+        "body": f"The Watcher encountered a conflict while syncing **{conf['BRANCH']}**.\n\n**Error Output:**\n```\n{error_msg}\n```\n\n*This issue was generated automatically by the Hive Watcher.*",
+        "labels": ["bug", "sync-conflict"]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(data))
+        if response.status_code == 201:
+            print("✅ Issue created successfully.")
+        else:
+            print(f"❌ Failed to create issue: {response.status_code}")
+    except Exception as e:
+        print(f"❌ API Error: {e}")
+
 def sync(conf):
-    print(f"[{time.strftime('%H:%M:%S')}] Syncing {conf['BRANCH']}...")
-    
-    # Force remote URL to use the token for auth
-    run(f"git remote set-url origin {conf['REPO_URL']}")
-    
-    # Wipe local changes to prevent merge conflicts
-    run("git fetch origin")
-    run(f"git reset --hard origin/{conf['BRANCH']}")
-    
-    # Update libraries if they changed
-    if os.path.exists("requirements.txt"):
-        print("Checking dependencies...")
-        run(f"{sys.executable} -m pip install -r requirements.txt")
-    
-    print("System Ready.")
-    
-    relaunch_node(conf)
+    if conf.get('IS_NODE') == "True":
+        # Nodes stay ruthless
+        run("git fetch origin")
+        run(f"git reset --hard origin/{conf['BRANCH']}")
+        relaunch_node(conf)
+    else:
+        # PC handles merge with Issue reporting
+        print("Attempting Merge...")
+        result = subprocess.run(f"git pull origin {conf['BRANCH']}", shell=True, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print("CONFLICT DETECTED!")
+            # Trigger the GitHub Issue
+            create_github_issue(conf, result.stderr + result.stdout)
+        else:
+            if "Already up to date" not in result.stdout:
+                relaunch_node(conf)
 
 def main():
     conf = get_config()
@@ -100,4 +126,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
