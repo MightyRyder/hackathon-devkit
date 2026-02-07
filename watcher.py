@@ -79,11 +79,6 @@ def sync(conf):
     if os.path.exists("requirements.txt"):
         print("Checking dependencies...")
         run(f"{sys.executable} -m pip install -r requirements.txt")
-        
-    # Pi Node Specific: Restart systemd app
-    if conf.get('IS_NODE') == "True":
-        print("Restarting Node Service...")
-        run("sudo systemctl restart hackathon-app.service")
     
     print("System Ready.")
     
@@ -111,6 +106,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
