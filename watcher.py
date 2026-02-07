@@ -36,13 +36,8 @@ def restart_all_apps(conf):
             subprocess.run(cmd, shell=True)
         except:
             pass
-
-    # Re-apply systemd restart ONLY if on a Pi Node
-    if conf.get('IS_NODE') == "True":
-        print("🚀 Restarting Main Node Service...")
-        subprocess.run("sudo systemctl restart hackathon-app.service", shell=True)
     
-    print("♻️  Refreshing Watcher logic...")
+    print("Refreshing Watcher logic...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def sync(conf):
@@ -90,3 +85,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
