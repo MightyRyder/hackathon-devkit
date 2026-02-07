@@ -18,26 +18,51 @@ def get_config():
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-def restart_all_apps(conf):
-    print("Terminating existing python applications...")
-    
-    my_pid = os.getpid()
-    
-    if os.name == 'nt':
-        # --- WINDOWS CLEANUP ---
-        # Kill all other python processes except this one
-        # We use a filter to find python.exe but skip our own PID
-        cmd = f'taskkill /F /FI "IMAGENAME eq python.exe" /FI "PID ne {my_pid}"'
-        subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        # --- LINUX CLEANUP ---
+def relaunch_node(conf):
+    if conf.get('IS_NODE') == "True":
+        my_pid = os.getpid()
+        
+        # 1. SURGICAL KILL (As before)
+        print("🛑 Cleaning up folder-associated processes...")
         try:
-            cmd = f"ps -ef | grep python3 | grep -v grep | grep -v {my_pid} | awk '{{print $2}}' | xargs -r kill -9"
-            subprocess.run(cmd, shell=True)
+            pids = subprocess.check_output(["fuser", "."]).decode().split()
+            for pid in pids:
+                if int(pid) != my_pid:
+                    os.kill(int(pid), signal.SIGKILL)
         except:
             pass
     
+        # 2. DYNAMIC RELAUNCH PHASE
+        os.makedirs("logs", exist_ok=True)
+        
+        # Scan every file in the root
+        for filename in os.listdir("."):
+            if filename.endswith(".py") and filename != "watcher.py":
+                
+                # Check if the file SHOULD be started
+                # We look for '# hive-start' in the first 2 lines of the file
+                try:
+                    with open(filename, 'r') as f:
+                        header = f.read(100) # Just read the beginning
+                    
+                    if "# hive-start" in header.lower():
+                        print(f"🚀 Starting Hive Service: {filename}")
+                        
+                        log_file = f"logs/{filename}.log"
+                        with open(log_file, "a") as log_out:
+                            # Use Popen so they all run simultaneously in the background
+                            subprocess.Popen(
+                                [sys.executable, filename],
+                                stdout=log_out,
+                                stderr=log_out,
+                                preexec_fn=os.setpid # Ensures it stays in its own process group
+                            )
+                except Exception as e:
+                    print(f"Could not scan {filename}: {e}")
+
+    # 3. WATCHER REBIRTH
     print("Refreshing Watcher logic...")
+    time.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def sync(conf):
@@ -86,5 +111,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
