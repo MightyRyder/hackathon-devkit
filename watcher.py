@@ -60,7 +60,7 @@ def relaunch_node(conf):
                 except Exception as e:
                     print(f"Could not scan {filename}: {e}")
 
-    # 3. WATCHER REBIRTH
+    # 3. Restart watcher
     print("Refreshing Watcher logic...")
     time.sleep(1)
     os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -105,6 +105,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
