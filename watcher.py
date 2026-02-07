@@ -40,13 +40,13 @@ def relaunch_node(conf):
             if filename.endswith(".py") and filename != "watcher.py":
                 
                 # Check if the file SHOULD be started
-                # We look for '# hive-start' in the first 2 lines of the file
+                # We look for '# cluster-start' in the first 2 lines of the file
                 try:
                     with open(filename, 'r') as f:
                         header = f.read(100) # Just read the beginning
                     
-                    if "# hive-start" in header.lower():
-                        print(f"🚀 Starting Hive Service: {filename}")
+                    if "# cluster-start" in header.lower():
+                        print(f"Starting cluster Service: {filename}")
                         
                         log_file = f"logs/{filename}.log"
                         with open(log_file, "a") as log_out:
@@ -59,11 +59,6 @@ def relaunch_node(conf):
                             )
                 except Exception as e:
                     print(f"Could not scan {filename}: {e}")
-
-    # 3. Restart watcher
-    print("Refreshing Watcher logic...")
-    time.sleep(1)
-    os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def sync(conf):
     print(f"[{time.strftime('%H:%M:%S')}] Syncing {conf['BRANCH']}...")
@@ -105,3 +100,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
