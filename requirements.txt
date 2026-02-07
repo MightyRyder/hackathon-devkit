@@ -1,0 +1,5 @@
+# HTTP library for GitHub API integration
+requests>=2.32.5
+
+# Note: os, sys, time, subprocess, signal, and platform 
+# are part of the Python Standard Library and do not need to be listed.
