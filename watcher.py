@@ -52,7 +52,7 @@ def sync(conf):
     
     # Update libraries if they changed
     if os.path.exists("requirements.txt"):
-        print("📦 Checking dependencies...")
+        print("Checking dependencies...")
         run(f"{sys.executable} -m pip install -r requirements.txt")
         
     # Pi Node Specific: Restart systemd app
@@ -71,18 +71,20 @@ def main():
     
     while True:
         try:
-            run("git fetch origin")
-            status = run("git status -uno").stdout
-            
-            if "behind" in status or "can be fast-forwarded" in status:
+            # This just checks the 'ID' without downloading anything heavy
+            remote_check = run(f"git ls-remote origin {conf['BRANCH']}").stdout.split()[0]
+            local_sha = run("git rev-parse HEAD").stdout.strip()
+
+            if local_sha != remote_check:
                 sync(conf)
-            
+                
         except Exception as e:
-            print(f"Warning: Sync cycle failed: {e}")
+            print(f"Connection glitch: {e}")
             
-        time.sleep(20)
+        time.sleep(5)
 
 if __name__ == "__main__":
 
     main()
+
 
