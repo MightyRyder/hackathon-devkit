@@ -19,32 +19,30 @@ def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
 def restart_all_apps(conf):
-    """
-    Kills existing apps and restarts everything in the root directory.
-    """
-    print("Terminating existing Hive applications...")
+    print("Terminating existing python applications...")
     
-    # 1. Kill any existing python processes that aren't this watcher
-    # This prevents 'Address already in use' errors for Flask/Sockets
     my_pid = os.getpid()
-    try:
-        # Finds all python3 processes and kills them if they aren't us
-        cmd = f"ps -ef | grep python3 | grep -v grep | grep -v {my_pid} | awk '{{print $2}}' | xargs -r kill -9"
-        subprocess.run(cmd, shell=True)
-    except Exception as e:
-        print(f"Note: Cleanup command had nothing to kill: {e}")
+    
+    if os.name == 'nt':
+        # --- WINDOWS CLEANUP ---
+        # Kill all other python processes except this one
+        # We use a filter to find python.exe but skip our own PID
+        cmd = f'taskkill /F /FI "IMAGENAME eq python.exe" /FI "PID ne {my_pid}"'
+        subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        # --- LINUX CLEANUP ---
+        try:
+            cmd = f"ps -ef | grep python3 | grep -v grep | grep -v {my_pid} | awk '{{print $2}}' | xargs -r kill -9"
+            subprocess.run(cmd, shell=True)
+        except:
+            pass
 
-    # 2. Re-apply systemd restart if on a Pi Node
+    # Re-apply systemd restart ONLY if on a Pi Node
     if conf.get('IS_NODE') == "True":
-        print("Restarting Main Node Service...")
+        print("🚀 Restarting Main Node Service...")
         subprocess.run("sudo systemctl restart hackathon-app.service", shell=True)
     
-    # 3. Launch any other 'main' files you want active
-    # If you have multiple apps (e.g., ui.py and sensor.py), list them here
-    # subprocess.Popen([sys.executable, "ui.py"]) 
-
-    # 4. Finally, restart the Watcher itself to refresh its own code
-    print("Refreshing Watcher logic...")
+    print("♻️  Refreshing Watcher logic...")
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 def sync(conf):
@@ -90,4 +88,5 @@ def main():
         time.sleep(20)
 
 if __name__ == "__main__":
+
     main()
