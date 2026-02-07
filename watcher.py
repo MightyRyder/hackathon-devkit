@@ -154,7 +154,7 @@ def sync(conf):
 
         handle_github_issue(conf, result.stderr + result.stdout)
         
-        print("CONFLICT DETECTED. Check the red/green lines above.")
+        print("CONFLICT DETECTED. This is your code vs incoming code.")
         choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
         
         if choice == 'y':
@@ -202,5 +202,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
