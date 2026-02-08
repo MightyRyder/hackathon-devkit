@@ -220,32 +220,33 @@ def sync(conf):
         choice = input("Overwrite ONLY conflicted lines? (y/n): ").lower().strip()
         
         if choice == 'y':
-            # BACKUP: Only saves the current state of tracked files
+            # 1. IMMEDIATE CLEANUP: Tell Git to stop the current failed merge
+            # This removes the "Merge in progress" lock that causes the loop.
+            subprocess.run("git merge --abort", shell=True, capture_output=True)
+            
+            # 2. BACKUP
             subprocess.run("git diff > last_conflict_backup.patch", shell=True)
             
-            # SURGICAL RECOVERY
-            # Get only the files that are actually broken/unmerged
-            unmerged_res = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True)
-            all_to_fix = unmerged_res.stdout.splitlines()
+            # 3. SURGICAL RECOVERY
+            # We use origin/{branch} to find what's different now that the merge is gone
+            diff_res = subprocess.run(f"git diff --name-only origin/{branch}", shell=True, capture_output=True, text=True)
+            all_to_fix = diff_res.stdout.splitlines()
 
             for f in all_to_fix:
                 print(f"Surgically syncing {f}...")
-                # Remove from conflict state
-                subprocess.run(f"git reset HEAD -- {f}", shell=True, capture_output=True)
-                # Overwrite just this file with remote version
+                # Overwrite the file with the clean remote version
                 subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
-                # Make sure it's added if it needs to be
+                # Stage it so Git knows it's resolved
                 subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
+            # 4. COMMIT THE RESOLUTION
+            # This is the "Save Point" that makes the NEXT loop return "Already up to date"
             subprocess.run('git commit -m "chore: auto-resolve surgical sync"', shell=True, capture_output=True)
-            
-            # Abort the 'merge state' so git is clean again
-            subprocess.run("git merge --abort", shell=True, capture_output=True)
             
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-            print("Surgical sync complete. Your untracked .py files were preserved.")
+            print("Overwrite complete. Please review the changes and re-commit if necessary.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
     else:
@@ -259,7 +260,6 @@ def main():
     print(f"Watcher Online | Branch: {conf['BRANCH']}")
     
     while True:
-        ts = time.strftime("%H:%M:%S")
         try:
             # Quick remote check
             remote_check_res = run(f"git ls-remote origin {conf['BRANCH']}")
@@ -269,7 +269,7 @@ def main():
 
                 if local_sha != remote_sha:
                     sync(conf)
-                    print(f"[{ts}] Sync finished.")
+                    print(f"[{time.strftime('%H:%M:%S')}] Sync finished.")
             else:
                 print(f"Git Remote Check Failed: {remote_check_res.stderr}")
                 
