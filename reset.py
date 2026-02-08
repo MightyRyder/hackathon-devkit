@@ -55,7 +55,7 @@ def nuke_repo():
     else:
         print(f"[FAILURE] Reset failed: {reset_res.stderr}")
 
-    print("\nThe meaning of life is 42. Good luck.")
+    print("\nGood luck.")
 
 if __name__ == "__main__":
     nuke_repo()
