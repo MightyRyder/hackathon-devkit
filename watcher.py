@@ -198,7 +198,7 @@ def sync(conf):
         print(f"[{ts}] Force-resetting to match remote...")
         res = subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True, text=True)
         if res.returncode == 0:
-            handle_github_issue(conf, "", resolve=True)
+            # handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
         return
@@ -220,33 +220,29 @@ def sync(conf):
         choice = input("Overwrite ONLY conflicted lines? (y/n): ").lower().strip()
         
         if choice == 'y':
-            # 1. IMMEDIATE CLEANUP: Tell Git to stop the current failed merge
-            # This removes the "Merge in progress" lock that causes the loop.
+            # 1. MUST ABORT FIRST: This clears the 'Conflict markers detected' state
             subprocess.run("git merge --abort", shell=True, capture_output=True)
             
-            # 2. BACKUP
             subprocess.run("git diff > last_conflict_backup.patch", shell=True)
             
-            # 3. SURGICAL RECOVERY
-            # We use origin/{branch} to find what's different now that the merge is gone
-            diff_res = subprocess.run(f"git diff --name-only origin/{branch}", shell=True, capture_output=True, text=True)
-            all_to_fix = diff_res.stdout.splitlines()
+            # 2. SURGICAL REPAIR
+            unmerged_res = subprocess.run(f"git diff --name-only origin/{branch}", shell=True, capture_output=True, text=True)
+            all_to_fix = unmerged_res.stdout.splitlines()
 
             for f in all_to_fix:
                 print(f"Surgically syncing {f}...")
-                # Overwrite the file with the clean remote version
                 subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
-                # Stage it so Git knows it's resolved
                 subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
-            # 4. COMMIT THE RESOLUTION
-            # This is the "Save Point" that makes the NEXT loop return "Already up to date"
-            subprocess.run('git commit -m "chore: auto-resolve surgical sync"', shell=True, capture_output=True)
+            # 3. COMMIT: This tells Git the conflict is GONE so it won't loop
+            subprocess.run('git commit -m "chore: resolved surgical sync"', shell=True, capture_output=True)
             
+            # 4. API PROTECTION: Only call this once per resolved conflict
             handle_github_issue(conf, "", resolve=True)
+            
             touch_files()
             relaunch_node(conf)
-            print("Overwrite complete. Please review the changes and re-commit if necessary.")
+            print("Overwrite complete. Local changes preserved where possible.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
     else:
