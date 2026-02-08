@@ -37,7 +37,7 @@ def nuke_repo():
 
     # 4. The Rescue Operation
     print("\n[+] Creating emergency backup (git stash)...")
-    run("git stash push -m 'Emergency backup before nuke'")
+    run("git stash push -u -m 'Emergency backup before nuke'")
 
     print("[+] Cleaning repo...")
     run("git merge --abort")  # Use default behavior; fails silently if no merge
