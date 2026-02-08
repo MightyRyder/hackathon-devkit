@@ -108,55 +108,70 @@ def sync(conf):
     branch = conf.get('BRANCH', 'main')
     is_node = conf.get('IS_NODE') == "True"
     
-    # 1. Capture current SHA before we do anything
+    # Track state before attempt
     old_sha = run("git rev-parse HEAD").stdout.strip()
 
-    # 2. THE NODE PATH: Authoritative
     if is_node:
-        print(f"[{ts}] Node Mode: Force-resetting to origin/{branch}...")
-        res = subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True, text=True)
-        if res.returncode == 0:
-            touch_files()
-            relaunch_node(conf)
+        print(f"[{ts}] Node Mode: Force-resetting...")
+        subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True)
+        touch_files()
+        relaunch_node(conf)
         return
 
-    # 3. THE DEVELOPER PATH: Attempt Merge
+    # Attempt merge
     result = subprocess.run(f"git merge origin/{branch}", shell=True, capture_output=True, text=True)
     
     if result.returncode != 0:
-        alert_user_of_push(branch)
+        # DETECT CONFLICTS (B: Only find what needs to be changed)
         unmerged_res = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True)
         conflicted_files = unmerged_res.stdout.splitlines()
 
+        # Dirty tree check (files that would be overwritten)
         if not conflicted_files and "overwritten by merge" in result.stderr:
             match = re.search(r"overwritten by merge:\n(.*?)(?:\nPl(?:ease|s)|$)", result.stderr, re.DOTALL)
             if match:
                 conflicted_files = [line.strip() for line in match.group(1).splitlines() if line.strip()]
 
         if not conflicted_files:
-            # Prevent loop: if merge fails but we don't know why, force the pointer
-            subprocess.run(f"git reset --mixed origin/{branch}", shell=True)
+            # Fallback to prevent infinite loops if something else is wrong
+            subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
             return
 
-        print(f"CONFLICTS: {', '.join(conflicted_files)}")
-        choice = input("Overwrite conflicted files? (y/n): ").lower().strip()
+        # A: THE COMPARISON (Show the user exactly what is different)
+        print("\n--- CODE DIFFERENCES (REMOTE vs LOCAL) ---")
+        # Shows lines added/missing for the conflicted files
+        diff_view = subprocess.run(f"git diff --stat origin/{branch}", shell=True, capture_output=True, text=True).stdout
+        print(diff_view if diff_view else "Binary or complex changes detected.")
+        print("------------------------------------------\n")
+
+        handle_github_issue(conf, result.stderr + result.stdout)
+        print(f"CONFLICTED FILES: {', '.join(conflicted_files)}")
+        choice = input("Overwrite ONLY these files with remote version? (y/n): ").lower().strip()
         
         if choice == 'y':
-            subprocess.run("git merge --abort", shell=True)
-            for f in conflicted_files:
-                subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True)
-                subprocess.run(f"git add {f}", shell=True)
+            # Safely clear merge state only if it exists
+            if os.path.exists(".git/MERGE_HEAD"):
+                subprocess.run("git merge --abort", shell=True, capture_output=True)
             
-            # MANDATORY: Align pointer to stop the "behind" detection loop
-            subprocess.run(f"git reset --mixed origin/{branch}", shell=True)
+            # B: SURGICAL CHANGE (Only touch the specific files)
+            for f in conflicted_files:
+                print(f"Updating {f}...")
+                # This pulls the remote version of JUST this file
+                subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
+                subprocess.run(f"git add {f}", shell=True, capture_output=True)
+            
+            # Finalize: Move the pointer forward
+            subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
             
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
         else:
-            subprocess.run("git merge --abort", shell=True)
+            if os.path.exists(".git/MERGE_HEAD"):
+                subprocess.run("git merge --abort", shell=True, capture_output=True)
+            print(f"[{ts}] Sync aborted. Local changes kept.")
     else:
-        # Successful Merge: Check if files actually changed before touching/relaunching
+        # Clean merge success
         new_sha = run("git rev-parse HEAD").stdout.strip()
         if old_sha != new_sha:
             handle_github_issue(conf, "", resolve=True)
