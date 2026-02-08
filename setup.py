@@ -162,16 +162,22 @@ def bootstrap_watcher():
     watcher_script = "watcher.py"
     
     if os.path.exists(watcher_script):
-        # Use Popen to start the watcher in a separate process
-        # so setup.py can finish and close cleanly.
-        if os.name == 'nt':
-            # Windows: Opens a new terminal window for the watcher
-            subprocess.Popen(["start", "cmd", "/k", sys.executable, watcher_script], shell=True)
-        else:
-            # Linux/Mac: Runs in background
-            subprocess.Popen([sys.executable, watcher_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Prepare the arguments: the first arg must be the executable path
+        args = [sys.executable, watcher_script]
         
-        print(f"Watcher is now running in the background.")
+        if os.name == 'nt':
+            # On Windows, os.execv doesn't behave exactly like Unix 'exec'. 
+            # To truly "spawn and forget" without a trace, we use creationflags.
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, watcher_script],
+                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS
+            )
+            sys.exit()
+        else:
+            # Linux/Mac: Replace the current process with the watcher.
+            # This code effectively stops here and 'becomes' the watcher_script.
+            os.execv(sys.executable, args)
     else:
         print(f"Error: {watcher_script} not found. Launch manually.")
 
