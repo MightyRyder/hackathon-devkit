@@ -168,15 +168,15 @@ def sync(conf):
 
             elif choice == 'n':
                 print("Preparing files for merge...")
-                # 1. Hide your work temporarily
+                # Hide your work temporarily
                 subprocess.run("git stash", shell=True)
-                # 2. Pull the remote changes
+                # Pull the remote changes
                 subprocess.run(f"git pull origin {branch}", shell=True)
-                # 3. Bring your work back (THIS triggers the markers!)
+                # Bring your work back (THIS triggers the markers!)
                 print("Applying your local changes back...")
                 result = subprocess.run("git stash pop", shell=True, capture_output=True, text=True)
                 
-                # 4. Open the files so you can see the markers
+                # Open the files so you can see the markers
                 for f in conflicted_files:
                     subprocess.run(f"code {f}", shell=True)
                 
@@ -186,12 +186,10 @@ def sync(conf):
                 print("3. Fix the lines, SAVE the file.")
                 input("4. Press Enter HERE once you have finished...")
                 
-                # 3. Clean up: We must 'add' the files to tell Git the conflict is gone
+                # Clean up: We must 'add' the files to tell Git the conflict is gone
                 for f in conflicted_files:
                     subprocess.run(f"git add {f}", shell=True)
                 
-                # 4. Finalize the commit
-                subprocess.run("git commit --no-edit", shell=True)
                 print("Merge finalized.")
                 handle_github_issue(conf, "", resolve=True)
                 touch_files(); relaunch_node(conf)
