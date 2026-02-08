@@ -261,9 +261,8 @@ def sync(conf):
                 # Stage it immediately
                 subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
-            # 4. COMMIT: Finalize the surgical fix
-            subprocess.run('git commit -m "chore: resolved surgical sync"', shell=True, capture_output=True)
-            
+            subprocess.run(f"git reset --soft origin/{branch}", shell=True)
+
             # 5. API PROTECTION
             handle_github_issue(conf, "", resolve=True)
             
