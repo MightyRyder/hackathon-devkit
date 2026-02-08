@@ -5,6 +5,34 @@ import sys
 
 def clear(): os.system('cls' if os.name == 'nt' else 'clear')
 
+def configure_git_mergetool():
+    print("Configuring VS Code as your default merge tool...")
+    try:
+        # Set VS Code as the tool
+        subprocess.run(
+            ["git", "config", "--global", "merge.tool", "vscode"], 
+            check=True
+        )
+        
+        # Define the command to launch VS Code in merge mode
+        # The --wait flag is CRITICAL; it tells Git to wait for you to close the tab
+        merge_cmd = 'code --wait --merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"'
+        subprocess.run(
+            ["git", "config", "--global", "mergetool.vscode.cmd", merge_cmd], 
+            check=True
+        )
+        
+        # Optional: Disable the backup files (.orig) Git creates during merges
+        subprocess.run(
+            ["git", "config", "--global", "mergetool.keepBackup", "false"], 
+            check=True
+        )
+        
+        print("Git Mergetool configured successfully!")
+    except Exception as e:
+        print(f"Error configuring Git: {e}")
+        print("Make sure 'code' (VS Code) is in your system PATH.")
+
 def get_role():
     print("\nRole Selection:")
     print("[1] Raspberry Pi Node (Production - Tracks 'stable')")
@@ -184,6 +212,7 @@ def bootstrap_watcher():
 if __name__ == "__main__":
     ensure_git_installed()
     ensure_zenity()
+    configure_git_mergetool()
     check_git_identity()
     generate_config()
     bootstrap_watcher()
