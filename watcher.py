@@ -246,29 +246,26 @@ def sync(conf):
         choice = input("Overwrite ONLY conflicted files with remote version? (y/n): ").lower().strip()
         
         if choice == 'y':
-            # 1. ABORT: Return to pre-merge state (restores local changes if merge was in progress)
-            # Note: If it was a Dirty Tree abort, this command does nothing, which is fine.
+            # 1. Abort the failed merge to clear the lock
             subprocess.run("git merge --abort", shell=True, capture_output=True)
             
-            # 2. BACKUP: Save the local changes that we are about to overwrite
+            # 2. Backup local work
             subprocess.run("git diff > local_changes_backup.patch", shell=True)
             
-            # 3. SURGICAL REPAIR
+            # 3. Surgical fix: Overwrite only the problem files
             for f in conflicted_files:
                 print(f"Surgically syncing {f}...")
-                # Checkout the remote version ONLY for this file
                 subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
-                # Stage it immediately
                 subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
-            subprocess.run(f"git reset --soft origin/{branch}", shell=True)
-
-            # 5. API PROTECTION
-            handle_github_issue(conf, "", resolve=True)
+            # 4. THE FIX: Move the local branch pointer to match the remote.
+            # This makes local_sha == remote_sha so the loop stops.
+            subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
             
+            handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-            print("Overwrite complete. Local changes preserved where possible.")
+            print("Sync complete. Local pointer aligned with remote.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
             subprocess.run("git merge --abort", shell=True, capture_output=True)
