@@ -5,6 +5,23 @@ import sys
 
 def clear(): os.system('cls' if os.name == 'nt' else 'clear')
 
+
+def check_git_identity():
+    # Check if name is set
+    name = subprocess.run("git config user.name", shell=True, capture_output=True, text=True).stdout.strip()
+    # Check if email is set
+    email = subprocess.run("git config user.email", shell=True, capture_output=True, text=True).stdout.strip()
+
+    if not name or not email:
+        print("GIT identity not set. GIT requires a name and email to commit changes.")
+        # You can hardcode your info here for the hackathon to save time
+        new_name = input("Enter your GitHub Name: ").strip()
+        new_email = input("Enter your GitHub Email: ").strip()
+        
+        subprocess.run(f'git config user.name "{new_name}"', shell=True)
+        subprocess.run(f'git config user.email "{new_email}"', shell=True)
+        print(f"Identity set to {new_name} <{new_email}>")
+
 def ensure_git_installed():
     """Checks for Git and installs it silently if missing."""
     # We send output to DEVNULL to keep the terminal clean
@@ -112,5 +129,6 @@ def bootstrap_watcher():
 
 if __name__ == "__main__":
     ensure_git_installed()
+    check_git_identity()
     generate_config()
     bootstrap_watcher()
