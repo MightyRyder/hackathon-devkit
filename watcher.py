@@ -257,6 +257,7 @@ def main():
     print(f"Watcher Online | Branch: {conf['BRANCH']}")
     
     while True:
+        ts = time.strftime("%H:%M:%S")
         try:
             # Quick remote check
             remote_check_res = run(f"git ls-remote origin {conf['BRANCH']}")
@@ -266,6 +267,7 @@ def main():
 
                 if local_sha != remote_sha:
                     sync(conf)
+                    print(f"[{ts}] Sync finished.")
             else:
                 print(f"Git Remote Check Failed: {remote_check_res.stderr}")
                 
