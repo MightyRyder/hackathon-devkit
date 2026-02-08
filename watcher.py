@@ -9,7 +9,7 @@ import platform
 import ctypes
 
 print("Watcher Mode:")
-print("- Auto-sync enabled with other teammates on the same it ")
+print("- Auto-sync enabled with other teammates on the same branch")
 print("- May overwrite local changes")
 print("- Conflicts will be reported to GitHub")
 print("- Press Ctrl+C to stop")
