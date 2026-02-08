@@ -5,6 +5,23 @@ import sys
 
 def clear(): os.system('cls' if os.name == 'nt' else 'clear')
 
+def secure_config_file(filepath):
+    """Sets file permissions so only the owner can read/write."""
+    if platform.system() != "Windows":
+        # Equivalent to 'chmod 600'
+        # Stat constants: S_IRUSR (read owner), S_IWUSR (write owner)
+        os.chmod(filepath, 0o600)
+        print(f"Permissions set to 600 for {filepath}")
+    else:
+        # On Windows, we use 'icacls' to mimic chmod 600
+        # This removes access for 'Everyone' and 'Users', leaving only the current user
+        try:
+            user = os.getlogin()
+            subprocess.run(["icacls", filepath, "/inheritance:r"], capture_output=True)
+            subprocess.run(["icacls", filepath, "/grant:r", f"{user}:(R,W)"], capture_output=True)
+            print(f"Windows ACLs secured for {filepath}")
+        except:
+            print("Windows security hardening skipped (Non-admin or manual config).")
 
 def check_git_identity():
     # Check if name is set
@@ -14,6 +31,8 @@ def check_git_identity():
 
     if not name or not email:
         print("GIT identity not set. GIT requires a name and email to commit changes.")
+        print("This is not used for GitHub API interactions, just for local commit metadata. You can use any name/email you like.")
+        print("However, it must match the format of a valid name/email to match the profile picture on GitHub and avoid commit errors.")
         # You can hardcode your info here for the hackathon to save time
         new_name = input("Enter your GitHub Name: ").strip()
         new_email = input("Enter your GitHub Email: ").strip()
@@ -85,6 +104,9 @@ def generate_config():
         repo_owner = url_parts[0]
         repo_name = url_parts[1]
 
+    print("\nNOTE:")
+    print("- config.txt is ignored by git")
+    print("- Token is stored locally for GitHub integration")
     token = input("GitHub Personal Access Token: ").strip()
     
     print("\nRole Selection:")
@@ -104,6 +126,8 @@ def generate_config():
         f.write(f"BRANCH={branch}\n")
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
+    
+    secure_config_file("config.txt")
 
     print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
