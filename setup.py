@@ -5,23 +5,30 @@ import sys
 
 def clear(): os.system('cls' if os.name == 'nt' else 'clear')
 
+def get_role():
+    print("\nRole Selection:")
+    print("[1] Raspberry Pi Node (Production - Tracks 'stable')")
+    print("[2] Developer (Workspace - Tracks 'dev')")
+    
+    choice = input("Choice [1/2]: ").strip()
+    
+    if choice in ["1", "2"]:
+        return choice
+    
+    print("Invalid selection. Please enter '1' or '2'.")
+    return get_role() # The recursive call
+
 def secure_config_file(filepath):
-    """Sets file permissions so only the owner can read/write."""
-    if platform.system() != "Windows":
-        # Equivalent to 'chmod 600'
-        # Stat constants: S_IRUSR (read owner), S_IWUSR (write owner)
-        os.chmod(filepath, 0o600)
-        print(f"Permissions set to 600 for {filepath}")
-    else:
-        # On Windows, we use 'icacls' to mimic chmod 600
-        # This removes access for 'Everyone' and 'Users', leaving only the current user
-        try:
-            user = os.getlogin()
+    """Hardens file permissions based on OS."""
+    try:
+        if platform.system() != "Windows":
+            os.chmod(filepath, 0o600)
+        else:
+            user = os.environ.get("USERNAME")
             subprocess.run(["icacls", filepath, "/inheritance:r"], capture_output=True)
             subprocess.run(["icacls", filepath, "/grant:r", f"{user}:(R,W)"], capture_output=True)
-            print(f"Windows ACLs secured for {filepath}")
-        except:
-            print("Windows security hardening skipped (Non-admin or manual config).")
+    except Exception as e:
+        print(f"Warning: Could not harden {filepath}: {e}")
 
 def check_git_identity():
     # Check if name is set
@@ -109,25 +116,26 @@ def generate_config():
     print("- Token is stored locally for GitHub integration")
     token = input("GitHub Personal Access Token: ").strip()
     
-    print("\nRole Selection:")
-    print("[1] Raspberry Pi Node (Production - Tracks 'stable')")
-    print("[2] Developer Laptop (Workspace - Tracks 'dev')")
-    role_choice = input("Select [1/2]: ")
+    role_choice = get_role()
     
     branch = "stable" if role_choice == "1" else "dev"
     is_node = "True" if role_choice == "1" else "False"
     
+    # Create the config file for permission-based hardening
+    with open("config.txt", "w") as f:
+        pass
+
+    secure_config_file("config.txt")
+
     # Save config with the new required keys
     with open("config.txt", "w") as f:
         f.write(f"GITHUB_TOKEN={token}\n") # Required for API calls
         f.write(f"REPO_URL=https://{token}@github.com/{repo_owner}/{repo_name}\n")
-        f.write(f"REPO_OWNER={repo_owner}\n") # FIXED: Added this
-        f.write(f"REPO_NAME={repo_name}\n")   # FIXED: Added this
+        f.write(f"REPO_OWNER={repo_owner}\n")
+        f.write(f"REPO_NAME={repo_name}\n")
         f.write(f"BRANCH={branch}\n")
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
-    
-    secure_config_file("config.txt")
 
     print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
