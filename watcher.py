@@ -204,16 +204,28 @@ def sync(conf):
         return
 
     # 2. THE DEVELOPER PATH: Surgical Protection
-    # We attempt the merge first to see if it works cleanly
     result = subprocess.run(f"git merge origin/{branch}", shell=True, capture_output=True, text=True)
     
     if result.returncode != 0:
         alert_user_of_push(branch)
         
-        # Capture the specific files that are actually conflicted (Unmerged)
-        # We must do this BEFORE aborting, or the conflict state is lost.
+        # --- LOGIC FIX START ---
+        # Step A: Check for active Merge Conflicts (Index State 'U')
         unmerged_res = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True)
         conflicted_files = unmerged_res.stdout.splitlines()
+
+        # Step B: Check for Pre-Merge Aborts (Dirty Tree)
+        # If Git aborted because local files would be overwritten, 'diff-filter=U' is empty.
+        # We must parse stderr to find the files blocking the merge.
+        if not conflicted_files and result.stderr:
+             # Look for: "Your local changes to the following files would be overwritten by merge:"
+             if "overwritten by merge" in result.stderr:
+                 match = re.search(r"overwritten by merge:\n(.*?)(?:\nPl(?:ease|s)|$)", result.stderr, re.DOTALL)
+                 if match:
+                     # Add the blocking files to our list of conflicts
+                     dirty_files = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+                     conflicted_files.extend(dirty_files)
+        # --- LOGIC FIX END ---
 
         print("\n--- CONFLICT DETAILS ---")
         conflicts = subprocess.run("git diff --color=always", shell=True, capture_output=True, text=True).stdout
@@ -222,23 +234,25 @@ def sync(conf):
 
         handle_github_issue(conf, result.stderr + result.stdout)
         
+        # Guard clause: If we still can't find files, return to avoid infinite loop
+        if not conflicted_files:
+            print(f"[{ts}] Merge failed, but no conflicting files could be identified.")
+            print("Check your git status manually.")
+            return
+
         print("MERGE CONFLICT DETECTED.")
         print(f"Files requiring overwrite: {', '.join(conflicted_files)}")
         choice = input("Overwrite ONLY conflicted files with remote version? (y/n): ").lower().strip()
         
         if choice == 'y':
-            # 1. ABORT: Return to pre-merge state (restores local changes)
+            # 1. ABORT: Return to pre-merge state (restores local changes if merge was in progress)
+            # Note: If it was a Dirty Tree abort, this command does nothing, which is fine.
             subprocess.run("git merge --abort", shell=True, capture_output=True)
             
             # 2. BACKUP: Save the local changes that we are about to overwrite
-            # This captures the user's local work for safety
             subprocess.run("git diff > local_changes_backup.patch", shell=True)
             
             # 3. SURGICAL REPAIR
-            # We iterate ONLY through the files we identified as conflicted earlier
-            if not conflicted_files:
-                print("No conflicted files found to overwrite.")
-            
             for f in conflicted_files:
                 print(f"Surgically syncing {f}...")
                 # Checkout the remote version ONLY for this file
@@ -257,13 +271,13 @@ def sync(conf):
             print("Overwrite complete. Local changes preserved where possible.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
-            # We must still abort the pending merge state if they choose 'n'
             subprocess.run("git merge --abort", shell=True, capture_output=True)
     else:
         if "Already up to date" not in result.stdout:
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
+
 def main():
     conf = get_config()
     print(f"Watcher Online | Branch: {conf['BRANCH']}")
