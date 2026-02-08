@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import time
 import subprocess
@@ -14,9 +15,6 @@ print("- May overwrite local changes")
 print("- Conflicts will be reported to GitHub")
 print("- Press Ctrl+C to stop")
 
-# Global tracker for GitHub issues to prevent spam
-active_conflict_issue_id = None
-
 def get_config():
     conf = {}
     if not os.path.exists("config.txt"):
@@ -29,243 +27,286 @@ def get_config():
                 conf[k.strip()] = v.strip()
     return conf
 
-def run(cmd):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+active_conflict_issue_id = None
+conf = get_config()
+DEBUG_MODE = conf.get("DEBUG_MODE", "False") == "True"
+
+def run(cmd, capture=True, check_errors=False):
+    ts = time.strftime("%H:%M:%S")
+    if DEBUG_MODE:
+        print(f"[{ts}] [DEBUG] $ {cmd}")
+
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=capture,
+        text=True
+    )
+
+    # Catch failures if we explicitly ask for it, or if it's a critical error
+    if result.returncode != 0 and (check_errors or DEBUG_MODE):
+        print(f"[{ts}] [ERROR] Command failed: {cmd}")
+        if result.stderr:
+            print(f"--- stderr ---\n{result.stderr.strip()}\n--------------")
+    
+    return result
+
 
 def alert_user_of_push(branch_name):
     title = "GIT OVERWRITE WARNING"
     message = (f"A push to the '{branch_name}' branch has been detected.\n\n"
-               "This may overwrite your local code. Check the watcher terminal "
-               "window for details and the detailed sync prompt.")
-    
+               "Check the watcher terminal for details.")
     os_type = platform.system()
-
-    # 1. WINDOWS: 0x00 (OK button) | 0x30 (Warning Icon) | 0x1000 (Always on Top)
     if os_type == "Windows":
         ctypes.windll.user32.MessageBoxW(0, message, title, 0x00 | 0x30 | 0x1000)
-
-    # 2. MACOS: Simple alert via AppleScript
     elif os_type == "Darwin":
         cmd = f'display alert "{title}" message "{message}" buttons {{"OK"}} default button "OK"'
-        subprocess.run(['osascript', '-e', cmd])
-
-    # 3. LINUX: Using zenity --warning
+        run(f"osascript -e '{cmd}'")
     elif os_type == "Linux":
         try:
-            subprocess.run(['zenity', '--warning', '--title', title, '--text', message])
+            run(f"zenity --warning --title '{title}' --text '{message}'")
         except FileNotFoundError:
             print(f"\n*** ALERT: {message} ***\n")
 
-def touch_files():
-    """Forces VS Code to refresh by updating file modification timestamps."""
-    for root, dirs, files in os.walk("."):
-        for f in files:
-            if f.endswith((".py", ".txt", ".sh", ".js")):
-                try:
-                    os.utime(os.path.join(root, f), None)
-                except:
-                    pass
+def touch_files(target_files=None):
+    """Updates modification timestamps. If target_files is provided, only touches those."""
+    if target_files:
+        files_to_touch = target_files
+    else:
+        # Fallback to walking if no list is provided
+        files_to_touch = []
+        for root, _, files in os.walk("."):
+            if ".git" in root: continue
+            for f in files:
+                if f.endswith((".py", ".txt", ".sh", ".js")):
+                    files_to_touch.append(os.path.join(root, f))
+    
+    for f in files_to_touch:
+        try:
+            os.utime(f, None)
+        except:
+            pass
 
 def handle_github_issue(conf, error_msg, resolve=False):
     global active_conflict_issue_id
-    
     headers = {
         "Authorization": f"token {conf.get('GITHUB_TOKEN')}",
         "Accept": "application/vnd.github.v3+json"
     }
-    
-    # RESOLVE: Close the issue if the sync finally works
     if resolve and active_conflict_issue_id:
         url = f"https://api.github.com/repos/{conf.get('REPO_OWNER')}/{conf.get('REPO_NAME')}/issues/{active_conflict_issue_id}"
         try:
             requests.patch(url, headers=headers, json={"state": "closed"})
             print(f"Conflict resolved. Closed Issue #{active_conflict_issue_id}")
             active_conflict_issue_id = None
-        except:
-            pass
+        
+        except Exception as e:
+            if DEBUG_MODE:
+                ts = time.strftime("%H:%M:%S")
+                
+                print(f"[{ts}] [DEBUG] GitHub API Error: {e}")
+            # Even in non-debug, a tiny hint helps
+            else:
+                print("! GitHub Issue Sync paused (Network/Token issue)")
         return
 
-    # CREATE: Only if we haven't already reported this specific conflict
     if not resolve and active_conflict_issue_id is None:
         print("Reporting conflict to GitHub Issues...")
-        
-        # Grab the actual code differences
         try:
-            diff_data = subprocess.check_output(
-                f"git diff HEAD..origin/{conf['BRANCH']}", 
-                shell=True, text=True
-            )[:2000]
+            diff_data = subprocess.check_output(f"git diff HEAD..origin/{conf['BRANCH']}", shell=True, text=True)[:2000]
         except:
             diff_data = "Could not generate diff summary."
-
         url = f"https://api.github.com/repos/{conf.get('REPO_OWNER')}/{conf.get('REPO_NAME')}/issues"
-        node_name = platform.node()
-        
         data = {
-            "title": f"Sync Conflict: {node_name}",
-            "body": (
-                f"### Conflict on {node_name}\n"
-                f"Merge failed on branch `{conf['BRANCH']}`.\n\n"
-                f"#### Code Comparison:\n"
-                f"```diff\n{diff_data}\n```\n"
-                f"**Raw Error:**\n```\n{error_msg}\n```"
-            ),
+            "title": f"Sync Conflict: {platform.node()}",
+            "body": f"Merge failed on `{conf['BRANCH']}`.\n\n```diff\n{diff_data}\n```\n**Error:**\n{error_msg}",
             "labels": ["bug", "sync-issue"]
         }
-        
         try:
             response = requests.post(url, headers=headers, json=data)
             if response.status_code == 201:
                 active_conflict_issue_id = response.json().get('number')
                 print(f"Issue created: #{active_conflict_issue_id}")
-            else:
-                print(f"GitHub API Error {response.status_code}: {response.text}")
         except Exception as e:
             print(f"Failed to connect to GitHub API: {e}")
 
 def relaunch_node(conf):
     if conf.get('IS_NODE') == "True":
-        my_pid = os.getpid()
-        print("Cleaning up existing processes...")
-        
-        # Cleanup logic (Platform specific)
-        if platform.system() != "Windows":
-            try:
-                # Get PIDs using the current directory
-                pids = subprocess.check_output(["fuser", "."]).decode().split()
-                
-                for pid_str in pids:
-                    pid = int(pid_str)
-                    if pid == my_pid:
-                        continue
-                    
-                    try:
-                        # 1. Get the command line arguments for this PID
-                        with open(f"/proc/{pid}/cmdline", "rb") as f:
-                            # cmdline is null-terminated, so we split by \x00
-                            args = f.read().split(b'\x00')
-                        
-                        # 2. Look for the script path (usually the second arg)
-                        # and check if that file contains your cluster header
-                        for arg in args:
-                            arg_str = arg.decode().strip()
-                            if arg_str.endswith(".py") and os.path.exists(arg_str):
-                                with open(arg_str, "r") as script_file:
-                                    header = script_file.readline()
-                                    if "# cluster-start" in header.lower():
-                                        os.kill(pid, signal.SIGKILL)
-                                        break # Found and killed, move to next PID
-                    except (FileNotFoundError, ProcessLookupError, PermissionError):
-                        continue
-            except Exception:
-                pass
-        
-        os.makedirs("logs", exist_ok=True)
-        
-        for filename in os.listdir("."):
-            if filename.endswith(".py") and filename != "watcher.py":
-                try:
-                    with open(filename, 'r', encoding='utf-8') as f:
-                        header = f.read(150)
-                    
-                    if "# cluster-start" in header.lower():
-                        print(f"Launching Service: {filename}")
-                        log_file = f"logs/{filename}.log"
-                        with open(log_file, "a") as log_out:
-                            kwargs = {}
-                            if platform.system() != "Windows":
-                                kwargs.update(preexec_fn=os.setsid)
-                                
-                            subprocess.Popen(
-                                [sys.executable, filename],
-                                stdout=log_out,
-                                stderr=log_out,
-                                **kwargs
-                            )
-                except Exception as e:
-                    print(f"Could not start {filename}: {e}")
+        print("\n[-] Scanning for runnable services...")
+        interpreters = {".py": "python3", ".sh": "bash", ".js": "node"}
+        targets = []
+        if conf.get('RUN_BACKEND') == "True": targets.append("backend")
+        if conf.get('RUN_FRONTEND') == "True": targets.append("frontend")
+
+        existing_sessions_raw = run("tmux ls -F '#S' 2>/dev/null || true", capture=True).stdout
+        existing_sessions = existing_sessions_raw.splitlines()
+
+        for session in existing_sessions:
+            if any(ext.replace('.', '_') in session for ext in interpreters):
+                run(f"tmux kill-session -t {session}", capture=True)
+
+        for folder in targets:
+            if not os.path.exists(folder): continue
+            for root, _, files in os.walk(folder):
+                for file in files:
+                    name, ext = os.path.splitext(file)
+                    if ext in interpreters and not file.startswith("_") and "utils" not in file.lower():
+                        full_path = os.path.abspath(os.path.join(root, file))
+                        session_name = f"{name}_{ext.replace('.', '')}"
+                        cmd = f"{interpreters[ext]} {full_path}"
+                        print(f"  [+] Launching {file} -> Tmux: {session_name}")
+                        run(f"tmux new-session -d -s {session_name} '{cmd}'")
+
+        print("[!] All services initialized.\n")
 
 def sync(conf):
     ts = time.strftime("%H:%M:%S")
     branch = conf.get('BRANCH', 'main')
     is_node = conf.get('IS_NODE') == "True"
     
-    print(f"[{ts}] Syncing {branch}...")
-    subprocess.run("git fetch origin", shell=True, capture_output=True)
+    old_sha = run("git rev-parse HEAD").stdout.strip()
 
-    # 1. THE NODE PATH: Full Automation
-    if is_node:
-        print(f"[{ts}] Force-resetting to match remote...")
-        res = subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True, text=True)
-        if res.returncode == 0:
-            handle_github_issue(conf, "", resolve=True)
-            touch_files()
-            relaunch_node(conf)
+    if is_node: 
+        print(f"[{ts}] Auto-resetting...")
+        run(f"git reset --hard origin/{branch}")
+        touch_files(); relaunch_node(conf)
         return
 
-    # 2. THE DEVELOPER PATH: Surgical Protection
-    result = subprocess.run(f"git merge origin/{branch}", shell=True, capture_output=True, text=True)
+    # ATTEMPT AUTO-MERGE
+    # This is what handles 2 devs on 1 file (if they touch different lines)
+    result = run(f"git merge origin/{branch}")
     
     if result.returncode != 0:
-        alert_user_of_push(branch)
-        
-        print("\n--- CONFLICT DETAILS ---")
-        conflicts = subprocess.run("git diff --color=always", shell=True, capture_output=True, text=True).stdout
-        print(conflicts if conflicts else "Conflict markers detected.")
-        print("------------------------\n")
+        # DETECT CONFLICTS
+        unmerged_res = run("git diff --name-only --diff-filter=U")
+        conflicted_files = unmerged_res.stdout.splitlines()
+
+        if not conflicted_files and "overwritten by merge" in result.stderr:
+            match = re.search(r"overwritten by merge:\n(.*?)(?:\nPl(?:ease|s)|$)", result.stderr, re.DOTALL)
+            if match:
+                conflicted_files = [line.strip() for line in match.group(1).splitlines() if line.strip()]
+
+        if not conflicted_files:
+            run(f"git reset --mixed origin/{branch}")
+            return
+
+        alert_user_of_push(branch)  
+
+        # SHOW COMPARISON (Lines added/removed)
+        print("\n--- INCOMING CHANGES SUMMARY ---")
+        # Shows +/- lines per file
+        diff_stat = run(f"git diff --stat HEAD..origin/{branch}")
+        print(diff_stat.stdout if diff_stat.stdout else "Large file changes detected.")
+        print("--------------------------------\n")
 
         handle_github_issue(conf, result.stderr + result.stdout)
         
-        print("MERGE CONFLICT DETECTED.")
-        choice = input("Overwrite ONLY conflicted lines? (y/n): ").lower().strip()
+        print(f"!!! CONFLICT IN: {', '.join(conflicted_files)} !!!")
         
-        if choice == 'y':
-            # BACKUP: Only saves the current state of tracked files
-            subprocess.run("git diff > last_conflict_backup.patch", shell=True)
+        while True:
+            print("\nOptions:")
+            print("[y] Overwrite ALL (Take remote version, LOSE local edits)")
+            print("[n] Open Visual Merge Editor (Try to SAVE both sets of edits)")
             
-            # SURGICAL RECOVERY
-            # Get only the files that are actually broken/unmerged
-            unmerged_res = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True)
-            all_to_fix = unmerged_res.stdout.splitlines()
+            choice = input("Select an option (y/n): ").lower().strip()
+            
+            if choice == 'y':
+                print("Performing overwrite...")
+                if os.path.exists(".git/MERGE_HEAD"):
+                    run("git merge --abort")
+                for f in conflicted_files:
+                    run(f"git checkout origin/{branch} -- {f}")
+                    run(f"git add {f}")
+                run(f"git reset --mixed origin/{branch}")
+                handle_github_issue(conf, "", resolve=True)
+                touch_files(); relaunch_node(conf)
+                break 
 
-            for f in all_to_fix:
-                print(f"Surgically syncing {f}...")
-                # Remove from conflict state
-                subprocess.run(f"git reset HEAD -- {f}", shell=True, capture_output=True)
-                # Overwrite just this file with remote version
-                subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
-            
-            # Abort the 'merge state' so git is clean again
-            subprocess.run("git merge --abort", shell=True, capture_output=True)
-            
-            handle_github_issue(conf, "", resolve=True)
-            touch_files()
-            relaunch_node(conf)
-            print("Surgical sync complete. Your untracked .py files were preserved.")
-        else:
-            print(f"[{ts}] Sync aborted. Local changes preserved.")
+            elif choice == 'n':
+                print("Preparing files for merge...")
+                run("git stash")
+                run(f"git pull origin {branch}")
+                
+                print("Applying your local changes back...")
+                # We capture output to see if it merged cleanly or hit a conflict
+                pop_res = run("git stash pop")
+                
+                # If 'conflict' is in the message, markers exist.
+                if "conflict" in pop_res.stdout.lower() or "conflict" in pop_res.stderr.lower():
+                    print("\n[!] CONFLICT DETECTED. Opening files for manual fix...")
+                else:
+                    print("\n[+] Changes merged CLEANLY. No markers needed.")
+
+                for f in conflicted_files:
+                    run(f"code {f}")
+                
+                print("\n>>> SCRIPT PAUSED.")
+                print("1. Review files in VS Code.")
+                print("2. If markers (<<<<<<<) exist, resolve them and SAVE.")
+                input("3. Press Enter HERE once finished...")
+                
+                for f in conflicted_files:
+                    run(f"git add {f}")
+                
+                # Final check to see if markers are still in the file
+                markers_found = False
+                for f in conflicted_files:
+                    if contains_markers(f):
+                        markers_found = True
+                        break
+                
+                if markers_found:
+                    print("\n[!] Markers still found in files! Please fix them properly.")
+                    continue
+
+                print("Merge finalized.")
+                handle_github_issue(conf, "", resolve=True)
+                touch_files(); relaunch_node(conf)
+                break
+            else:
+                print("[!] Invalid choice. Please enter 'y' or 'n'.")
     else:
-        if "Already up to date" not in result.stdout:
+        # Success: Git handled the 2-dev merge automatically
+        new_sha = run("git rev-parse HEAD").stdout.strip()
+        if old_sha != new_sha:
             handle_github_issue(conf, "", resolve=True)
-            touch_files()
-            relaunch_node(conf)
+            touch_files(); relaunch_node(conf)
+
+def contains_markers(filepath):
+    """Checks for conflict markers line-by-line (RAM efficient)."""
+    if not os.path.exists(filepath):
+        return False
+    try:
+        with open(filepath, 'r', errors='ignore') as f:
+            for line in f:
+                if "<<<<<<<" in line:
+                    return True
+    except:
+        pass
+    return False
 
 def main():
     conf = get_config()
     print(f"Watcher Online | Branch: {conf['BRANCH']}")
     
+    if conf.get('IS_NODE') == "True":
+        print("First launch: Starting tmux services...")
+        relaunch_node(conf)
+
     while True:
         try:
-            # Quick remote check
-            remote_check_res = run(f"git ls-remote origin {conf['BRANCH']}")
-            if remote_check_res.returncode == 0:
-                remote_sha = remote_check_res.stdout.split()[0]
-                local_sha = run("git rev-parse HEAD").stdout.strip()
+            # 1. Fetch first so local tracking knows about remote
+            run("git fetch origin")
+            
+            # 2. Count how many commits the remote is ahead of us
+            # This is much more stable than comparing raw SHAs
+            check_behind = run(f"git rev-list --count HEAD..origin/{conf['BRANCH']}")
+            behind_count = int(check_behind.stdout.strip() or 0)
 
-                if local_sha != remote_sha:
-                    sync(conf)
-            else:
-                print(f"Git Remote Check Failed: {remote_check_res.stderr}")
+            if behind_count > 0:
+                print(f"[{time.strftime('%H:%M:%S')}] {behind_count} new commit(s) detected.")
+                sync(conf)
+                print(f"[{time.strftime('%H:%M:%S')}] Sync finished.")
                 
         except Exception as e:
             print(f"Connection glitch: {e}")

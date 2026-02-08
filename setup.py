@@ -5,6 +5,34 @@ import sys
 
 def clear(): os.system('cls' if os.name == 'nt' else 'clear')
 
+def configure_git_mergetool():
+    print("Configuring VS Code as your default merge tool...")
+    try:
+        # Set VS Code as the tool
+        subprocess.run(
+            ["git", "config", "--global", "merge.tool", "vscode"], 
+            check=True
+        )
+        
+        # Define the command to launch VS Code in merge mode
+        # The --wait flag is CRITICAL; it tells Git to wait for you to close the tab
+        merge_cmd = 'code --wait --merge "$LOCAL" "$REMOTE" "$BASE" "$MERGED"'
+        subprocess.run(
+            ["git", "config", "--global", "mergetool.vscode.cmd", merge_cmd], 
+            check=True
+        )
+        
+        # Optional: Disable the backup files (.orig) Git creates during merges
+        subprocess.run(
+            ["git", "config", "--global", "mergetool.keepBackup", "false"], 
+            check=True
+        )
+        
+        print("Git Mergetool configured successfully!")
+    except Exception as e:
+        print(f"Error configuring Git: {e}")
+        print("Make sure 'code' (VS Code) is in your system PATH.")
+
 def get_role():
     print("\nRole Selection:")
     print("[1] Raspberry Pi Node (Production - Tracks 'stable')")
@@ -32,9 +60,9 @@ def secure_config_file(filepath):
 
 def check_git_identity():
     # Check if name is set
-    name = subprocess.run("git config user.name", shell=True, capture_output=True, text=True).stdout.strip()
+    name = subprocess.run("git --global config user.name", shell=True, capture_output=True, text=True).stdout.strip()
     # Check if email is set
-    email = subprocess.run("git config user.email", shell=True, capture_output=True, text=True).stdout.strip()
+    email = subprocess.run("git --global config user.email", shell=True, capture_output=True, text=True).stdout.strip()
 
     if not name or not email:
         print("GIT identity not set. GIT requires a name and email to commit changes.")
@@ -44,9 +72,11 @@ def check_git_identity():
         new_name = input("Enter your GitHub Name: ").strip()
         new_email = input("Enter your GitHub Email: ").strip()
         
-        subprocess.run(f'git config user.name "{new_name}"', shell=True)
-        subprocess.run(f'git config user.email "{new_email}"', shell=True)
+        subprocess.run(f'git --global config user.name "{new_name}"', shell=True)
+        subprocess.run(f'git --global config user.email "{new_email}"', shell=True)
         print(f"Identity set to {new_name} <{new_email}>")
+    else:
+        print(f"GIT identity found: {name} <{email}>")
 
 def ensure_zenity():
     """Checks for Zenity on Linux and installs it if missing."""
@@ -136,6 +166,19 @@ def generate_config():
     
     branch = "stable" if role_choice == "1" else "dev"
     is_node = "True" if role_choice == "1" else "False"
+
+    run_backend = False
+    run_frontend = False
+    print("Node detected, installing additional dependencies...")
+    if is_node == "True":
+        subprocess.run(["sudo", "apt-get", "install", "-y", "tmux"], stdout=subprocess.DEVNULL, check=True)
+        run_backend = input("Enable backend services on this node? (y/n): ").strip().lower() == 'y'
+        run_frontend = input("Enable frontend services on this node? (y/n): ").strip().lower() == 'y'
+        if not (run_backend or run_frontend):
+            print("Warning: You have not enabled any services. This node will be idle.")
+            print("You can enable services later by editing config.txt.")
+    
+    debug_mode = input("Enable debug mode? (y/n): ").strip().lower() == 'y'
     
     # Create the config file for permission-based hardening
     with open("config.txt", "w") as f:
@@ -152,6 +195,9 @@ def generate_config():
         f.write(f"BRANCH={branch}\n")
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
+        f.write(f"DEBUG_MODE={debug_mode}\n")
+        f.write(f"RUN_BACKEND={'True' if is_node == 'True' and run_backend else 'False'}\n")
+        f.write(f"RUN_FRONTEND={'True' if is_node == 'True' and run_frontend else 'False'}\n")
 
     print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")
@@ -184,6 +230,7 @@ def bootstrap_watcher():
 if __name__ == "__main__":
     ensure_git_installed()
     ensure_zenity()
+    configure_git_mergetool()
     check_git_identity()
     generate_config()
     bootstrap_watcher()
