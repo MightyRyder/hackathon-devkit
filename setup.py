@@ -164,6 +164,8 @@ def generate_config():
     
     branch = "stable" if role_choice == "1" else "dev"
     is_node = "True" if role_choice == "1" else "False"
+
+    debug_mode = input("Enable debug mode? (y/n): ").strip().lower() == 'y'
     
     # Create the config file for permission-based hardening
     with open("config.txt", "w") as f:
@@ -180,6 +182,7 @@ def generate_config():
         f.write(f"BRANCH={branch}\n")
         f.write(f"IS_NODE={is_node}\n")
         f.write(f"OS={platform.system()}\n")
+        f.write(f"DEBUG_MODE={debug_mode}\n")
 
     print(f"\nconfig.txt generated for {repo_owner}/{repo_name}")
     print(f"Tracking '{branch}' branch. Node Mode: {is_node}")

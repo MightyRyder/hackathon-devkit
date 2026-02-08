@@ -29,8 +29,27 @@ def get_config():
                 conf[k.strip()] = v.strip()
     return conf
 
-def run(cmd):
-    return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+def run(cmd, capture=True):
+    conf = get_config()
+    DEBUG_MODE = conf.get("DEBUG_MODE", "False") == "True"
+    
+    ts = time.strftime("%H:%M:%S")
+
+    if DEBUG_MODE:
+        print(f"[{ts}] [DEBUG] $ {cmd}")
+
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=capture,
+        text=True
+    )
+
+    if DEBUG_MODE and result.stderr:
+        print(f"[{ts}] [DEBUG] stderr:\n{result.stderr.strip()}")
+    
+    return result
+
 
 def alert_user_of_push(branch_name):
     title = "GIT OVERWRITE WARNING"
