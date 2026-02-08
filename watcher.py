@@ -150,7 +150,7 @@ def sync(conf):
         while True:
             print("\nOptions:")
             print("[y] Overwrite ALL (Take remote version, LOSE local edits)")
-            print("[n] Open Visual Merge Editor (Pick lines in VS Code)")
+            print("[n] Open Visual Merge Editor (Try to SAVE both sets of edits)")
             
             choice = input("Select an option (y/n): ").lower().strip()
             
@@ -168,34 +168,42 @@ def sync(conf):
 
             elif choice == 'n':
                 print("Preparing files for merge...")
-                # Hide your work temporarily
                 subprocess.run("git stash", shell=True)
-                # Pull the remote changes
                 subprocess.run(f"git pull origin {branch}", shell=True)
-                # Bring your work back (THIS triggers the markers!)
-                print("Applying your local changes back...")
-                result = subprocess.run("git stash pop", shell=True, capture_output=True, text=True)
                 
-                # Open the files so you can see the markers
+                print("Applying your local changes back...")
+                # We capture output to see if it merged cleanly or hit a conflict
+                pop_res = subprocess.run("git stash pop", shell=True, capture_output=True, text=True)
+                
+                # If 'conflict' is in the message, markers exist.
+                if "conflict" in pop_res.stdout.lower() or "conflict" in pop_res.stderr.lower():
+                    print("\n[!] CONFLICT DETECTED. Opening files for manual fix...")
+                else:
+                    print("\n[+] Changes merged CLEANLY. No markers needed.")
+
                 for f in conflicted_files:
                     subprocess.run(f"code {f}", shell=True)
                 
                 print("\n>>> SCRIPT PAUSED.")
-                print("1. Look at the file in VS Code.")
-                print("2. If the 'Merge Editor' button isn't there, look for <<<<<<< HEAD markers.")
-                print("3. Fix the lines, SAVE the file.")
-                input("4. Press Enter HERE once you have finished...")
+                print("1. Review files in VS Code.")
+                print("2. If markers (<<<<<<<) exist, resolve them and SAVE.")
+                input("3. Press Enter HERE once finished...")
                 
-                # Clean up: We must 'add' the files to tell Git the conflict is gone
                 for f in conflicted_files:
                     subprocess.run(f"git add {f}", shell=True)
                 
+                # Final check to see if markers are still in the file
+                check = subprocess.run(f"grep -l '<<<<<<<' {' '.join(conflicted_files)}", shell=True, capture_output=True)
+                if check.returncode == 0:
+                    print("\n[!] Markers still found in files! Please fix them properly.")
+                    continue # Re-run the loop
+
                 print("Merge finalized.")
                 handle_github_issue(conf, "", resolve=True)
                 touch_files(); relaunch_node(conf)
                 break
             else:
-                print("\n[!] Conflict markers still exist. You can't skip this!")
+                print("[!] Invalid choice. Please enter 'y' or 'n'.")
     else:
         # Success: Git handled the 2-dev merge automatically
         new_sha = run("git rev-parse HEAD").stdout.strip()
