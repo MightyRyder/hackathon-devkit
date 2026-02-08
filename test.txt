@@ -1,3 +1,0 @@
-check this out if i edit this file, then push to github, it automatically syncs with the other dircetory/python file which could be another developers machine working on the same project
-this is how you simplify git correctly
-yes "git" not github
