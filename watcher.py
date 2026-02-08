@@ -6,6 +6,7 @@ import json
 import requests
 import signal
 import platform
+import ctypes
 
 print("Watcher Mode:")
 print("- Auto-sync enabled with other teammates on the same it ")
@@ -30,6 +31,30 @@ def get_config():
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
+
+def alert_user_of_push(branch_name):
+    title = "GIT OVERWRITE WARNING"
+    message = (f"A push to the '{branch_name}' branch has been detected.\n\n"
+               "This may overwrite your local code. Check the watcher terminal "
+               "window for details and the detailed sync prompt.")
+    
+    os_type = platform.system()
+
+    # 1. WINDOWS: 0x00 (OK button) | 0x30 (Warning Icon) | 0x1000 (Always on Top)
+    if os_type == "Windows":
+        ctypes.windll.user32.MessageBoxW(0, message, title, 0x00 | 0x30 | 0x1000)
+
+    # 2. MACOS: Simple alert via AppleScript
+    elif os_type == "Darwin":
+        cmd = f'display alert "{title}" message "{message}" buttons {{"OK"}} default button "OK"'
+        subprocess.run(['osascript', '-e', cmd])
+
+    # 3. LINUX: Using zenity --warning
+    elif os_type == "Linux":
+        try:
+            subprocess.run(['zenity', '--warning', '--title', title, '--text', message])
+        except FileNotFoundError:
+            print(f"\n*** ALERT: {message} ***\n")
 
 def touch_files():
     """Forces VS Code to refresh by updating file modification timestamps."""
