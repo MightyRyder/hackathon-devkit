@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import time
 
 def get_config():
     conf = {}
@@ -19,20 +20,8 @@ def push():
     branch = conf.get("BRANCH", "main")
     
     print(f"Checking remote status for {branch}...")
-    
-    # 1. SYNC GUARD: Check if we are behind the remote
-    subprocess.run("git fetch origin", shell=True, capture_output=True)
-    behind = subprocess.run(
-        f"git rev-list --count HEAD..origin/{branch}",
-        shell=True, capture_output=True, text=True
-    ).stdout.strip()
 
-    if behind != "0" and behind != "":
-        print(f"FAILED: Your branch is behind by {behind} commits.")
-        print("Run watcher sync (or git pull) before pushing your changes.")
-        return
-
-    # 2. STATUS CHECK: Porcelain for the logic, --stat for the user
+    # STATUS CHECK: Porcelain for the logic, --stat for the user
     status = subprocess.run("git status --porcelain", shell=True, capture_output=True, text=True).stdout
     if not status:
         print("No changes detected. Nothing to push.")
@@ -41,7 +30,7 @@ def push():
     print("\nFiles modified:")
     subprocess.run("git diff --stat", shell=True)
     
-    # 3. USER INPUT
+    # USER INPUT
     msg = input("\nEnter commit message (or Enter to cancel): ").strip()
     if not msg:
         print("Push aborted.")
@@ -51,17 +40,37 @@ def push():
         print("Staging changes...")
         subprocess.run("git add .", shell=True)
         
-        # 4. QUOTE-SAFE COMMIT
+        # QUOTE-SAFE COMMIT
         # We avoid shell=True here to prevent injection and handle special characters
         subprocess.run(["git", "commit", "-m", msg], capture_output=True)
         
         print(f"Pushing to origin {branch}...")
-        result = subprocess.run(f"git push origin {branch}", shell=True, capture_output=True, text=True)
+        # SYNC GUARD: Check if we are behind the remote
+        subprocess.run("git fetch origin", shell=True, capture_output=True)
+        behind = subprocess.run(f"git rev-list --count HEAD..origin/{branch}", shell=True, capture_output=True, text=True).stdout.strip()
+        if behind != "0" and behind != "":
+            RED = "\033[91m"
+            RESET = "\033[0m"
+
+            print(f"{RED}WARNING: Your branch is behind by {behind} commits.{RESET}")
+            print(f"{RED}Run watcher sync (or git pull) before pushing your changes...otherwise, you may overwrite others' work.{RESET}")
+            print(f"{RED}Would you still like to push? Enter 'FORCE' to continue: {RESET}")
+
+            time.sleep(3)
+            
+            choice = input().strip().upper()
+            if choice != 'FORCE':
+                print("Push aborted to prevent overwriting remote changes.")
+                return
+            else:
+                result = subprocess.run(f"git push --force origin {branch}", shell=True, capture_output=True, text=True)
+        else:
+            result = subprocess.run(f"git push origin {branch}", shell=True, capture_output=True, text=True)
         
         if result.returncode == 0:
             print("Successfully pushed to GitHub.")
         else:
-            print(f"Push failed: {result.stderr}")
+            print(f"Push failed:\n{result.stdout}\n{result.stderr}")
             
     except Exception as e:
         print(f"An error occurred: {e}")
