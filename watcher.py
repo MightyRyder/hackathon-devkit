@@ -165,60 +165,61 @@ def relaunch_node(conf):
 
 def sync(conf):
     ts = time.strftime("%H:%M:%S")
-    print(f"[{ts}] Syncing {conf['BRANCH']}...")
+    branch = conf.get('BRANCH', 'main')
+    is_node = conf.get('IS_NODE') == "True"
     
+    print(f"[{ts}] Syncing {branch}...")
     subprocess.run("git fetch origin", shell=True, capture_output=True)
-    
-    # Attempt merge
-    result = subprocess.run(f"git merge origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True)
+
+    # 1. THE NODE PATH: Full Automation
+    if is_node:
+        print(f"[{ts}] Node Mode: Force-resetting to match remote...")
+        res = subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True, text=True)
+        if res.returncode == 0:
+            handle_github_issue(conf, "", resolve=True)
+            touch_files()
+            relaunch_node(conf)
+        return
+
+    # 2. THE DEVELOPER PATH: Surgical Protection
+    result = subprocess.run(f"git merge origin/{branch}", shell=True, capture_output=True, text=True)
     
     if result.returncode != 0:
-        # 1. Grab the conflict lines specifically
-        # This shows the diff of the unmerged (conflicted) files
+        alert_user_of_push(branch)
+        
         print("\n--- CONFLICT DETAILS ---")
         conflicts = subprocess.run("git diff --color=always", shell=True, capture_output=True, text=True).stdout
-        if conflicts:
-            print(conflicts)
-        else:
-            print("Conflict markers detected in file contents.")
+        print(conflicts if conflicts else "Conflict markers detected.")
         print("------------------------\n")
 
         handle_github_issue(conf, result.stderr + result.stdout)
         
         print("MERGE CONFLICT DETECTED.")
-        choice = input("Overwrite the local lines shown above? (y/n): ").lower().strip()
+        choice = input("Overwrite ONLY conflicted lines? (y/n): ").lower().strip()
         
         if choice == 'y':
-            print("Backing up to lat_conflict_backup.patch... Use 'git apply last_conflict_backup.patch' to use the backup.")
-            subprocess.run(
-                "git diff > last_conflict_backup.patch",
-                shell=True
-            )
-            print("Pre-sync snapshot:")
-            subprocess.run("git status --porcelain", shell=True)
-            # 1. Identify files that git is refusing to merge
-            # This handles files that are modified locally and conflict with the incoming pull
-            conflicted_files = subprocess.run(f"git diff --name-only origin/{conf['BRANCH']}", shell=True, capture_output=True, text=True).stdout.splitlines()
+            # BACKUP: Only saves the current state of tracked files
+            subprocess.run("git diff > last_conflict_backup.patch", shell=True)
             
-            # Also catch files git explicitly marks as 'Unmerged'
-            unmerged_files = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.splitlines()
-            
-            all_to_fix = list(set(conflicted_files + unmerged_files))
+            # SURGICAL RECOVERY
+            # Get only the files that are actually broken/unmerged
+            unmerged_res = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True)
+            all_to_fix = unmerged_res.stdout.splitlines()
 
             for f in all_to_fix:
-                print(f"Force-syncing {f} from remote...")
-                # Reset the index for the file first (removes it from the 'conflict' state)
+                print(f"Surgically syncing {f}...")
+                # Remove from conflict state
                 subprocess.run(f"git reset HEAD -- {f}", shell=True, capture_output=True)
-                # Overwrite with the remote version
-                subprocess.run(f"git checkout origin/{conf['BRANCH']} -- {f}", shell=True, capture_output=True)
+                # Overwrite just this file with remote version
+                subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
             
-            # Try to abort a merge if one exists, but ignore errors if it doesn't
+            # Abort the 'merge state' so git is clean again
             subprocess.run("git merge --abort", shell=True, capture_output=True)
             
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-            print("Surgical sync complete. File is now updated.")
+            print("Surgical sync complete. Your untracked .py files were preserved.")
         else:
             print(f"[{ts}] Sync aborted. Local changes preserved.")
     else:
@@ -226,7 +227,6 @@ def sync(conf):
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
-
 def main():
     conf = get_config()
     print(f"Watcher Online | Branch: {conf['BRANCH']}")

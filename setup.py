@@ -48,6 +48,22 @@ def check_git_identity():
         subprocess.run(f'git config user.email "{new_email}"', shell=True)
         print(f"Identity set to {new_name} <{new_email}>")
 
+def ensure_zenity():
+    """Checks for Zenity on Linux and installs it if missing."""
+    if platform.system() == "Linux":
+        print("Checking for Zenity (GUI Alerts)...")
+        if subprocess.run(["which", "zenity"], capture_output=True).returncode != 0:
+            print("Zenity not found. Attempting auto-install...")
+            try:
+                # Assuming Debian/Ubuntu/Raspberry Pi OS
+                subprocess.run(["sudo", "apt-get", "update", "-y"], capture_output=True)
+                subprocess.run(["sudo", "apt-get", "install", "zenity", "-y"], capture_output=True)
+                print("Zenity installed successfully.")
+            except Exception as e:
+                print(f"Could not install Zenity: {e}. Falling back to terminal alerts.")
+        else:
+            print("Zenity is already installed.")
+
 def ensure_git_installed():
     """Checks for Git and installs it silently if missing."""
     # We send output to DEVNULL to keep the terminal clean
@@ -161,6 +177,7 @@ def bootstrap_watcher():
 
 if __name__ == "__main__":
     ensure_git_installed()
+    ensure_zenity()
     check_git_identity()
     generate_config()
     bootstrap_watcher()
