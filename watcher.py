@@ -108,19 +108,15 @@ def sync(conf):
     branch = conf.get('BRANCH', 'main')
     is_node = conf.get('IS_NODE') == "True"
     
-    # 1. ALERT IMMEDIATELY
-    # This ensures the window pops up the moment a sync is attempted
-    alert_user_of_push(branch)
-    
     old_sha = run("git rev-parse HEAD").stdout.strip()
 
-    if is_node:
-        print(f"[{ts}] Node Mode: Auto-resetting...")
+    if is_node: 
+        print(f"[{ts}] Auto-resetting...")
         subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True)
         touch_files(); relaunch_node(conf)
         return
 
-    # 2. ATTEMPT AUTO-MERGE
+    # ATTEMPT AUTO-MERGE
     # This is what handles 2 devs on 1 file (if they touch different lines)
     result = subprocess.run(f"git merge origin/{branch}", shell=True, capture_output=True, text=True)
     
@@ -138,7 +134,9 @@ def sync(conf):
             subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
             return
 
-        # A: SHOW COMPARISON (Lines added/removed)
+        alert_user_of_push(branch)  
+
+        # SHOW COMPARISON (Lines added/removed)
         print("\n--- INCOMING CHANGES SUMMARY ---")
         # Shows +/- lines per file
         diff_stat = subprocess.run(f"git diff --stat HEAD..origin/{branch}", shell=True, capture_output=True, text=True).stdout
@@ -148,27 +146,51 @@ def sync(conf):
         handle_github_issue(conf, result.stderr + result.stdout)
         
         print(f"!!! CONFLICT IN: {', '.join(conflicted_files)} !!!")
-        print("Warning: Choosing 'y' will REVISE these files to match the remote exactly.")
-        print("If you and another dev edited the SAME lines, your local edits to these files WILL BE LOST.")
-        choice = input("Overwrite these specific files? (y/n to resolve manually): ").lower().strip()
         
-        if choice == 'y':
-            if os.path.exists(".git/MERGE_HEAD"):
-                subprocess.run("git merge --abort", shell=True, capture_output=True)
+        while True:
+            print("\nOptions:")
+            print("[y] Overwrite ALL (Take remote version, LOSE local edits)")
+            print("[n] Open Visual Merge Editor (Pick lines in VS Code)")
             
-            for f in conflicted_files:
-                # B: SURGICAL OVERWRITE 
-                # (Replaces the whole file with the remote version)
-                subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
-                subprocess.run(f"git add {f}", shell=True, capture_output=True)
+            choice = input("Select an option (y/n): ").lower().strip()
             
-            subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
-            handle_github_issue(conf, "", resolve=True)
-            touch_files(); relaunch_node(conf)
-        else:
-            if os.path.exists(".git/MERGE_HEAD"):
-                subprocess.run("git merge --abort", shell=True, capture_output=True)
-            print(f"[{ts}] Manual resolution required. Script paused for these files.")
+            if choice == 'y':
+                print("Performing overwrite...")
+                if os.path.exists(".git/MERGE_HEAD"):
+                    subprocess.run("git merge --abort", shell=True, capture_output=True)
+                for f in conflicted_files:
+                    subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
+                    subprocess.run(f"git add {f}", shell=True, capture_output=True)
+                subprocess.run(f"git reset --mixed origin/{branch}", shell=True, capture_output=True)
+                handle_github_issue(conf, "", resolve=True)
+                touch_files(); relaunch_node(conf)
+                break 
+
+            elif choice == 'n':
+                print("Launching VS Code Merge Editor...")
+                # THIS is the line that opens the window and PAUSES the script
+                subprocess.run("git mergetool --tool=vscode -y", shell=True)
+                
+                
+                
+                print("\n>>> SCRIPT PAUSED.")
+                print("1. Look at the file in VS Code (it will have a 'Merge' tab).")
+                print("2. Choose which lines to keep and click 'Complete Merge'.")
+                print("3. Save and close that tab.")
+                input("4. Press Enter HERE once you have finished...")
+                
+                # Check if conflicts are actually gone
+                still_conflicted = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.strip()
+                if not still_conflicted:
+                    subprocess.run("git commit --no-edit", shell=True)
+                    print("Merge successful!")
+                    handle_github_issue(conf, "", resolve=True)
+                    touch_files(); relaunch_node(conf)
+                    break # Now the 5-second loop can resume
+                else:
+                    print("\n[!] Conflict markers still exist. You can't skip this!")
+            else:
+                print("Invalid choice. Please select 'y' or 'n'.")
     else:
         # Success: Git handled the 2-dev merge automatically
         new_sha = run("git rev-parse HEAD").stdout.strip()
