@@ -167,30 +167,37 @@ def sync(conf):
                 break 
 
             elif choice == 'n':
-                print("Launching VS Code Merge Editor...")
-                # THIS is the line that opens the window and PAUSES the script
-                subprocess.run("git mergetool --tool=vscode -y", shell=True)
+                print("Preparing files for merge...")
+                # 1. Hide your work temporarily
+                subprocess.run("git stash", shell=True)
+                # 2. Pull the remote changes
+                subprocess.run(f"git pull origin {branch}", shell=True)
+                # 3. Bring your work back (THIS triggers the markers!)
+                print("Applying your local changes back...")
+                result = subprocess.run("git stash pop", shell=True, capture_output=True, text=True)
                 
-                
+                # 4. Open the files so you can see the markers
+                for f in conflicted_files:
+                    subprocess.run(f"code {f}", shell=True)
                 
                 print("\n>>> SCRIPT PAUSED.")
-                print("1. Look at the file in VS Code (it will have a 'Merge' tab).")
-                print("2. Choose which lines to keep and click 'Complete Merge'.")
-                print("3. Save and close that tab.")
+                print("1. Look at the file in VS Code.")
+                print("2. If the 'Merge Editor' button isn't there, look for <<<<<<< HEAD markers.")
+                print("3. Fix the lines, SAVE the file.")
                 input("4. Press Enter HERE once you have finished...")
                 
-                # Check if conflicts are actually gone
-                still_conflicted = subprocess.run("git diff --name-only --diff-filter=U", shell=True, capture_output=True, text=True).stdout.strip()
-                if not still_conflicted:
-                    subprocess.run("git commit --no-edit", shell=True)
-                    print("Merge successful!")
-                    handle_github_issue(conf, "", resolve=True)
-                    touch_files(); relaunch_node(conf)
-                    break # Now the 5-second loop can resume
-                else:
-                    print("\n[!] Conflict markers still exist. You can't skip this!")
+                # 3. Clean up: We must 'add' the files to tell Git the conflict is gone
+                for f in conflicted_files:
+                    subprocess.run(f"git add {f}", shell=True)
+                
+                # 4. Finalize the commit
+                subprocess.run("git commit --no-edit", shell=True)
+                print("Merge finalized.")
+                handle_github_issue(conf, "", resolve=True)
+                touch_files(); relaunch_node(conf)
+                break
             else:
-                print("Invalid choice. Please select 'y' or 'n'.")
+                print("\n[!] Conflict markers still exist. You can't skip this!")
     else:
         # Success: Git handled the 2-dev merge automatically
         new_sha = run("git rev-parse HEAD").stdout.strip()
