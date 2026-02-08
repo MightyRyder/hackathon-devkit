@@ -237,6 +237,8 @@ def sync(conf):
                 # Make sure it's added if it needs to be
                 subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
+            subprocess.run('git commit -m "chore: auto-resolve surgical sync"', shell=True, capture_output=True)
+            
             # Abort the 'merge state' so git is clean again
             subprocess.run("git merge --abort", shell=True, capture_output=True)
             
