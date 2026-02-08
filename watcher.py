@@ -131,11 +131,33 @@ def relaunch_node(conf):
         # Cleanup logic (Platform specific)
         if platform.system() != "Windows":
             try:
+                # Get PIDs using the current directory
                 pids = subprocess.check_output(["fuser", "."]).decode().split()
-                for pid in pids:
-                    if int(pid) != my_pid:
-                        os.kill(int(pid), signal.SIGKILL)
-            except:
+                
+                for pid_str in pids:
+                    pid = int(pid_str)
+                    if pid == my_pid:
+                        continue
+                    
+                    try:
+                        # 1. Get the command line arguments for this PID
+                        with open(f"/proc/{pid}/cmdline", "rb") as f:
+                            # cmdline is null-terminated, so we split by \x00
+                            args = f.read().split(b'\x00')
+                        
+                        # 2. Look for the script path (usually the second arg)
+                        # and check if that file contains your cluster header
+                        for arg in args:
+                            arg_str = arg.decode().strip()
+                            if arg_str.endswith(".py") and os.path.exists(arg_str):
+                                with open(arg_str, "r") as script_file:
+                                    header = script_file.readline()
+                                    if "# cluster-start" in header.lower():
+                                        os.kill(pid, signal.SIGKILL)
+                                        break # Found and killed, move to next PID
+                    except (FileNotFoundError, ProcessLookupError, PermissionError):
+                        continue
+            except Exception:
                 pass
         
         os.makedirs("logs", exist_ok=True)
@@ -173,7 +195,7 @@ def sync(conf):
 
     # 1. THE NODE PATH: Full Automation
     if is_node:
-        print(f"[{ts}] Node Mode: Force-resetting to match remote...")
+        print(f"[{ts}] Force-resetting to match remote...")
         res = subprocess.run(f"git reset --hard origin/{branch}", shell=True, capture_output=True, text=True)
         if res.returncode == 0:
             handle_github_issue(conf, "", resolve=True)
@@ -227,6 +249,7 @@ def sync(conf):
             handle_github_issue(conf, "", resolve=True)
             touch_files()
             relaunch_node(conf)
+
 def main():
     conf = get_config()
     print(f"Watcher Online | Branch: {conf['BRANCH']}")
