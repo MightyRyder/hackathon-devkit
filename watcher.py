@@ -234,6 +234,8 @@ def sync(conf):
                 subprocess.run(f"git reset HEAD -- {f}", shell=True, capture_output=True)
                 # Overwrite just this file with remote version
                 subprocess.run(f"git checkout origin/{branch} -- {f}", shell=True, capture_output=True)
+                # Make sure it's added if it needs to be
+                subprocess.run(f"git add {f}", shell=True, capture_output=True)
             
             # Abort the 'merge state' so git is clean again
             subprocess.run("git merge --abort", shell=True, capture_output=True)
