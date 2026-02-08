@@ -48,8 +48,7 @@ def push():
         # SYNC GUARD: Check if we are behind the remote
         subprocess.run("git fetch origin", shell=True, capture_output=True)
         behind = subprocess.run(f"git rev-list --count HEAD..origin/{branch}", shell=True, capture_output=True, text=True).stdout.strip()
-        #if behind != "0" and behind != "":
-        if True:
+        if behind != "0" and behind != "":
             RED = "\033[91m"
             RESET = "\033[0m"
 
