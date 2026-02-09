@@ -7,6 +7,8 @@ This code has multiple safety guardrails to prevent overwriting others' code in 
 
 setup.py --> Generates `config.txt`, which is required for the other scripts to work. It also handles dependencies
 
+# files
+
 watcher.py --> Must be run in the background. It checks to make sure you're always up to date with the repo
 
 push.py --> Easily allows you to push your changes to GitHub
