@@ -1,19 +1,10 @@
 import os
-import re
 import sys
 import time
 import subprocess
-import json
-import requests
-import signal
-import platform
-import ctypes
-
-print("Watcher Mode:")
-print("- Auto-sync enabled with other teammates on the same branch")
-print("- May overwrite local changes")
-print("- Conflicts will be reported to GitHub")
-print("- Press Ctrl+C to stop")
+import re
+import site
+import importlib
 
 def get_config():
     conf = {}
@@ -51,6 +42,23 @@ def run(cmd, capture=True, check_errors=False):
     
     return result
 
+print("Installing requirements.txt...")
+run("pip install --user -r requirements.txt")
+
+importlib.invalidate_caches()
+site.main()
+
+import json
+import requests
+import signal
+import platform
+import ctypes
+
+print("Watcher Mode:")
+print("- Auto-sync enabled with other teammates on the same branch")
+print("- May overwrite local changes")
+print("- Conflicts will be reported to GitHub")
+print("- Press Ctrl+C to stop")
 
 def alert_user_of_push(branch_name):
     title = "GIT OVERWRITE WARNING"
@@ -316,3 +324,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
